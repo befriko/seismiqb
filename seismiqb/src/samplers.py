@@ -614,7 +614,7 @@ class SeismicSampler(Sampler):
 
     def __init__(self, labels, crop_shape, proportions=None, mode='geometry',
                  threshold=0.05, ranges=None, filtering_matrix=None, **kwargs):
-        baseclass = self.MODE_TO_CLASS[mode]
+        baseclass = self.MODE_TO_CLASS[mode] if isinstance(mode, str) else mode
 
         names, geometry_names = {}, {}
         sampler = 0 & ConstantSampler(np.int32(0), dim=baseclass.dim)
