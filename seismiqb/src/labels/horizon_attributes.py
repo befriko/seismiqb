@@ -10,7 +10,7 @@ from skimage.measure import label
 from sklearn.decomposition import PCA
 
 from ..functional import smooth_out, special_convolve
-from ..utils import transformable, lru_cache
+from ..utils import transformable, lru_cache, to_list
 
 
 
@@ -700,3 +700,24 @@ class AttributesMixin:
             spikes = binary_dilation(spikes, iterations=dilation).astype(np.float32)
             spikes[self.field.zero_traces == 1] = np.nan
         return spikes
+
+    # Clustering
+    @transformable
+    def cluster(self, clusterer, attributes, scales=None, add_coordinates=True, **kwargs):
+        """ !!. """
+        attributes = to_list(attributes) if isinstance(attributes, dict) else [{'src': attributes}]
+        scales = [1] * len(attributes) if scales is None else to_list(scales)
+
+        i, x = self.points.T[:2]
+        features = [self.load_attribute(dtype=np.float32, **attribute)[i, x] * scale
+                    for attribute, scale in zip(attributes, scales)]
+        if add_coordinates:
+            features += [self.points.astype(np.float32)]
+        features = np.concatenate(features, axis=1)
+
+        cluster_labels = clusterer.fit_predict(features, **kwargs)
+
+        cluster_map = np.full(self.field.spatial_shape, np.nan)
+        cluster_map[i, x] = cluster_labels
+
+        return cluster_map
