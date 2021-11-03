@@ -553,6 +553,41 @@ class AccumulatorBlosc(Accumulator3D):
                    shape=grid.shape, origin=grid.origin, orientation=grid.orientation, **kwargs)
 
 
+class LoopedList(list):
+    """ List that loops from given position (default is 0).
+
+        Examples
+        --------
+        >>> l = LoopedList(['a', 'b', 'c'])
+        >>> [l[i] for i in range(9)]
+        ['a', 'b', 'c', 'a', 'b', 'c', 'a', 'b', 'c']
+
+        >>> l = LoopedList(['a', 'b', 'c', 'd'], loop_from=2)
+        >>> [l[i] for i in range(9)]
+        ['a', 'b', 'c', 'd', 'c', 'd', 'c', 'd', 'c']
+
+        >>> l = LoopedList(['a', 'b', 'c', 'd', 'e'], loop_from=-1)
+        >>> [l[i] for i in range(9)]
+        ['a', 'b', 'c', 'd', 'e', 'e', 'e', 'e', 'e']
+    """
+    def __init__(self, *args, **kwargs):
+        self._loop_from = kwargs.pop('loop_from', 0)
+        super().__init__(*args, **kwargs)
+
+    def __getitem__(self, idx):
+        if idx >= len(self):
+            pos = self.loop_from
+            idx = pos + (idx - pos) % (len(self) - pos)
+        return super().__getitem__(idx)
+
+    @property
+    def loop_from(self):
+        """ Property validating `loop_from` parameter value with respect to list length. """
+        pos = self._loop_from + len(self) * (self._loop_from < 0)
+        if pos < 0:
+            msg = f"Can't loop index list of length {len(self)} with when `loop_from` value is {self._loop_from}"
+            raise ValueError(msg)
+        return pos
 
 class AugmentedList(list):
     """ List with additional features:
