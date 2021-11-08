@@ -6,10 +6,11 @@ from matplotlib import pyplot as plt
 from matplotlib.cbook import flatten
 
 from .viewer import FieldViewer
-from ..plotters import plot_image, show_3d
+from ..plotters import plot_image, MatplotlibPlotter, show_3d
 
 
-COLOR_GENERATOR = iter(['firebrick', 'darkorchid', 'sandybrown'])
+
+COLOR_GENERATOR = iter(MatplotlibPlotter.MASK_COLORS)
 NAME_TO_COLOR = {}
 
 

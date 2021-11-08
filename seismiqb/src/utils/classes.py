@@ -570,24 +570,18 @@ class LoopedList(list):
         >>> [l[i] for i in range(9)]
         ['a', 'b', 'c', 'd', 'e', 'e', 'e', 'e', 'e']
     """
-    def __init__(self, *args, **kwargs):
-        self._loop_from = kwargs.pop('loop_from', 0)
+    def __init__(self, *args, loop_from=0, **kwargs):
+        self.loop_from = loop_from
         super().__init__(*args, **kwargs)
 
     def __getitem__(self, idx):
         if idx >= len(self):
-            pos = self.loop_from
+            pos = self.loop_from + len(self) * (self.loop_from < 0)
+            if pos < 0:
+                raise IndexError(f"List of length {len(self)} is looped from {self.loop_from} index")
             idx = pos + (idx - pos) % (len(self) - pos)
         return super().__getitem__(idx)
 
-    @property
-    def loop_from(self):
-        """ Property validating `loop_from` parameter value with respect to list length. """
-        pos = self._loop_from + len(self) * (self._loop_from < 0)
-        if pos < 0:
-            msg = f"Can't loop index list of length {len(self)} with when `loop_from` value is {self._loop_from}"
-            raise ValueError(msg)
-        return pos
 
 class AugmentedList(list):
     """ List with additional features:
