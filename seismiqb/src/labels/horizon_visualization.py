@@ -78,13 +78,15 @@ class VisualizationMixin:
             'suptitle_label': f'`{self.name}` on field `{self.field.displayed_name}`',
             **kwargs
         }
-        self.field.show(attributes=attributes, mode=mode, short_title=short_title,
+        figure = self.field.show(attributes=attributes, mode=mode, short_title=short_title,
                         return_figure=return_figure, **kwargs)
 
         # Clean-up
         if self.field.loaded_labels[-1] == '_unknown_label':
             self.field._unknown_label = None
             self.field.loaded_labels.pop(-1)
+
+        return figure if return_figure else None
 
 
 
