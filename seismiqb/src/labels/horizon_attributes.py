@@ -50,9 +50,8 @@ class AttributesMixin:
 
     def matrix_set_dtype(self, matrix, dtype):
         """ Change the dtype and fill_value to match it. """
-        mask = (matrix == self.FILL_VALUE) | np.isnan(matrix)
         matrix = matrix.astype(dtype)
-
+        mask = self._matrix_absence_mask(matrix)
         matrix[mask] = self._dtype_to_fill_value(dtype)
         return matrix
 
@@ -67,18 +66,19 @@ class AttributesMixin:
 
     def matrix_fill_to_num(self, matrix, value):
         """ Change the matrix values at points where horizon is absent to a supplied one. """
-        if matrix.shape == self.shape:
-            mask = ~self.binary_matrix
-        elif matrix.shape == self.field.spatial_shape:
-            mask = ~self.full_binary_matrix
-        else:
-            msg = f"Can't define horizon absence mask with respect to provided matrix since its shape {matrix.shape} "\
-                  f"doesn't coincide with either horizon shape {self.shape} or field shape {self.field.spatial_shape}."
-            raise ValueError(msg)
-
+        mask = self._matrix_absence_mask(matrix)
         matrix[mask] = value
-
         return matrix
+
+    def _matrix_absence_mask(self, matrix):
+        """ Provide bool mask of horizon absence points consistent with shape of given matrix. """
+        if matrix.shape[:2] == self.shape:
+            return ~self.binary_matrix
+        if matrix.shape[:2] == self.field.spatial_shape:
+            return ~self.full_binary_matrix
+        msg = f"Can't define horizon absence mask with respect to provided matrix since its shape {matrix.shape} "\
+                f"doesn't coincide with either horizon shape {self.shape} or field shape {self.field.spatial_shape}."
+        raise ValueError(msg)
 
     def matrix_num_to_fill(self, matrix, value):
         """ Mark points equal to value as absent ones. """
