@@ -67,14 +67,17 @@ class AttributesMixin:
 
     def matrix_fill_to_num(self, matrix, value):
         """ Change the matrix values at points where horizon is absent to a supplied one. """
-        if matrix.dtype == np.int32:
-            mask = (matrix == self.FILL_VALUE)
-        elif matrix.dtype == np.float32:
-            mask = np.isnan(matrix)
-        elif np.issubdtype(matrix.dtype, np.bool):
-            mask = ~matrix
+        if matrix.shape == self.shape:
+            mask = ~self.binary_matrix
+        elif matrix.shape == self.field.spatial_shape:
+            mask = ~self.full_binary_matrix
+        else:
+            msg = f"Can't define horizon absence mask with respect to provided matrix since its shape {matrix.shape} "\
+                  f"doesn't coincide with either horizon shape {self.shape} or field shape {self.field.spatial_shape}."
+            raise ValueError(msg)
 
         matrix[mask] = value
+
         return matrix
 
     def matrix_num_to_fill(self, matrix, value):

@@ -828,25 +828,27 @@ class SeismicCropBatch(Batch):
         return crop * noise
 
     @apply_parallel
-    def cutout_2d(self, crop, patch_shape, n):
+    def cutout_2d(self, crop, patch_shape, n_patches, fill_value=0):
         """ Change patches of data to zeros.
 
         Parameters
         ----------
         patch_shape : array-like
             Shape or patches along each axis.
-        n : float
+        n : number
             Number of patches to cut.
+        fill_value : number
+            Value to fill patches with.
         """
-        rnd = np.random.RandomState(int(n*100)).uniform
+        rnd = np.random.RandomState(int(n_patches * 100)).uniform
         patch_shape = patch_shape.astype(int)
 
         copy_ = copy(crop)
-        for _ in range(int(n)):
+        for _ in range(int(n_patches)):
             starts = [int(rnd(crop.shape[ax] - patch_shape[ax])) for ax in range(3)]
             stops = [starts[ax] + patch_shape[ax] for ax in range(3)]
             slices = [slice(start, stop) for start, stop in zip(starts, stops)]
-            copy_[tuple(slices)] = 0
+            copy_[tuple(slices)] = fill_value
         return copy_
 
     @apply_parallel
