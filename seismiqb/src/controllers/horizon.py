@@ -154,7 +154,7 @@ class HorizonController(BaseController):
         """
         for idx in dataset.indices:
             field = dataset[idx]
-            field.make_quality_grid(frequencies, **kwargs)
+            field.geometry.make_quality_grid(frequencies, **kwargs)
 
             postfix = f'_{idx}' if len(dataset.indices) > 1 else ''
             plot_image(
@@ -173,7 +173,11 @@ class HorizonController(BaseController):
         config = Config({**self.config['common'], **self.config['train_sampler'], **config, **kwargs})
 
         crop_shape = self.config['train']['crop_shape']
-        rebatch_threshold = self.config['train']['rebatch_threshold']
+        if 'threshold' in config:
+            rebatch_threshold = config.pop('threshold')
+        else:
+            rebatch_threshold = self.config['train']['rebatch_threshold']
+
         sampler = SeismicSampler(labels=dataset.labels, crop_shape=crop_shape,
                                  threshold=rebatch_threshold, mode='horizon', **config)
         return sampler

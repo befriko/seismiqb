@@ -6,7 +6,7 @@ from .crop_batch import SeismicCropBatch
 
 # Data entities
 from .field import Field
-from .synthetic import SyntheticField
+from .synthetic import generate_synthetic, SyntheticGenerator
 from .geometry import SeismicGeometry, BloscFile
 from .labels import Horizon, UnstructuredHorizon, Fault, GeoBody
 from .metrics import HorizonMetrics, GeometryMetrics, FaciesMetrics

@@ -316,16 +316,16 @@ class MatplotlibPlotter:
         TEXT_KEYS = ['fontsize', 'family', 'color']
 
         # title
-        keys = ['title', 'label', 'y'] + TEXT_KEYS
+        keys = ['title', 'y'] + TEXT_KEYS
         params = filter_parameters(ax_params, keys, prefix='title_', index=ax_num)
-        params['label'] = params.pop('title', None) or params.get('label')
+        params['label'] = params.pop('title', None) or params.pop('label', None)
         if params:
             ax.set_title(**params)
 
         # suptitle
-        keys = ['t', 'y'] + TEXT_KEYS
+        keys = ['suptitle', 't', 'y'] + TEXT_KEYS
         params = filter_parameters(ax_params, keys, prefix='suptitle_')
-        params['t'] = params.get('t') or params.get('suptitle') or params.get('label')
+        params['t'] = params.pop('t', None) or params.pop('suptitle', None) or params.pop('label', None)
         if params:
             ax.figure.suptitle(**params)
 

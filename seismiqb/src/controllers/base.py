@@ -210,6 +210,7 @@ class BaseController:
         self.log(f'Actual batch size: {len(batch)}')
         self.log(f'Cache sizes: {dataset.geometries.cache_size}')
         self.log(f'Cache lengths: {dataset.geometries.cache_length}')
+        self.log(f'Model class: {model}')
 
         # Log: full and short model repr
         self.log_to_file(repr(model.model), '末 model_repr.txt')

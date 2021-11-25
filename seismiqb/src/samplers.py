@@ -24,6 +24,8 @@ from .labels.fault import insert_fault_into_mask
 from ..batchflow import Sampler, ConstantSampler
 from .plotters import MatplotlibPlotter, plot_image
 
+
+
 class BaseSampler(Sampler):
     """ Common logic of making locations. Refer to the documentation of inherited classes for more details. """
     def _make_locations(self, field, points, matrix, crop_shape, ranges, threshold, filtering_matrix):
@@ -232,7 +234,8 @@ class HorizonSampler(BaseSampler):
     """
     dim = 2 + 1 + 6 # dimensionality of sampled points: field_id and label_id, orientation, locations
 
-    def __init__(self, horizon, crop_shape, threshold=0.05, ranges=None, filtering_matrix=None, shift_height=True,
+    def __init__(self, horizon, crop_shape, threshold=0.05, ranges=None, filtering_matrix=None,
+                 shift_height=True, spatial_shift=False,
                  field_id=0, label_id=0, **kwargs):
         field = horizon.field
         matrix = horizon.full_matrix
@@ -254,6 +257,8 @@ class HorizonSampler(BaseSampler):
         if shift_height:
             shift_height = shift_height if isinstance(shift_height, tuple) else (0.9, 0.1)
         self.shift_height = shift_height
+
+        self.spatial_shift = spatial_shift
         super().__init__()
 
     def sample(self, size):
@@ -282,13 +287,32 @@ class HorizonSampler(BaseSampler):
 
     def _sample(self, size):
         idx = np.random.randint(self.n, size=size)
-        sampled = self.locations[idx]
+        sampled = self.locations[idx] # (orientation, i_start, x_start, h_start, i_stop, x_stop, h_stop)
 
         if self.shift_height:
             shift = np.random.randint(low=-int(self.crop_height*self.shift_height[0]),
                                       high=-int(self.crop_height*self.shift_height[1]),
                                       size=(size, 1), dtype=np.int32)
             sampled[:, [3, 6]] += shift
+
+        if self.spatial_shift:
+            shapes_i = sampled[:, 4] - sampled[:, 1]
+            shift_i = np.random.randint(low=-(shapes_i*self.spatial_shift[0][0]).astype(np.int32),
+                                        high=-(shapes_i*self.spatial_shift[0][1]).astype(np.int32),
+                                        size=(size, 1), dtype=np.int32)
+            sampled[:, [1, 4]] += shift_i
+
+            shapes_x = sampled[:, 5] - sampled[:, 2]
+            shift_x = np.random.randint(low=-(shapes_x*self.spatial_shift[1][0]).astype(np.int32),
+                                        high=-(shapes_x*self.spatial_shift[1][1]).astype(np.int32),
+                                        size=(size, 1), dtype=np.int32)
+            sampled[:, [2, 5]] += shift_x
+
+            np.clip(sampled[:, 1], 0, self.field.shape[0] - self.crop_shape[0], out=sampled[:, 1])
+            np.clip(sampled[:, 4], 0 + self.crop_shape[0], self.field.shape[0], out=sampled[:, 4])
+
+            np.clip(sampled[:, 2], 0, self.field.shape[1] - self.crop_shape[1], out=sampled[:, 2])
+            np.clip(sampled[:, 5], 0 + self.crop_shape[1], self.field.shape[1], out=sampled[:, 5])
 
         np.clip(sampled[:, 3], 0, self.field.depth - self.crop_height, out=sampled[:, 3])
         np.clip(sampled[:, 6], 0 + self.crop_height, self.field.depth, out=sampled[:, 6])
@@ -297,7 +321,8 @@ class HorizonSampler(BaseSampler):
 
     def __repr__(self):
         return f'<HorizonSampler for {self.displayed_name}: '\
-               f'crop_shape={tuple(self.crop_shape)}, threshold={self.threshold}, shift_height={self.shift_height}>'
+               f'crop_shape={tuple(self.crop_shape)}, threshold={self.threshold}, '\
+               f'shift_height={self.shift_height}, spatial_shift={self.spatial_shift}>'
 
     @property
     def orientation_matrix(self):
@@ -699,30 +724,30 @@ class SeismicSampler(Sampler):
     def show_locations(self, **kwargs):
         """ Visualize on field map by using underlying `locations` structure. """
         data = []
-        titles = []
+        title = []
+        xlabel = []
+        ylabel = []
 
         for samplers_list in self.samplers.values():
             field = samplers_list[0].field
 
-            field_data = [[sampler.orientation_matrix, field.zero_traces] for sampler in samplers_list]
-            data.extend(field_data)
+            data += [[sampler.orientation_matrix, field.zero_traces] for sampler in samplers_list]
+            title += [f'{field.displayed_name}: {sampler.displayed_name}' for sampler in samplers_list]
+            xlabel += [field.index_headers[0]] * len(samplers_list)
+            ylabel += [field.index_headers[1]] * len(samplers_list)
 
-            field_titles = [f'{field.displayed_name}: {sampler.displayed_name}' for sampler in samplers_list]
-            titles.extend(field_titles)
-
-        ncols, nrows = MatplotlibPlotter.infer_cols_rows(n_subplots=len(data), params=kwargs)
-        # add extra axis for legend plot no space left on a grid of inferred cols and rows
-        if ncols * nrows == len(data):
-            nrows += 1
+        ncols, nrows = MatplotlibPlotter.infer_cols_rows(n_subplots=len(data) + 1, params=kwargs)
 
         kwargs = {
             'cmap': [['Sampler', 'black']] * len(data),
             'alpha': [[1.0, 0.4]] * len(data),
             'ncols': ncols,
             'nrows': nrows,
-            'title': titles,
+            'title': title,
             'vmin': [[1, 0]] * len(data),
             'vmax': [[3, 1]] * len(data),
+            'xlabel': xlabel,
+            'ylabel': ylabel,
             **kwargs
         }
 
@@ -743,7 +768,7 @@ class SeismicSampler(Sampler):
         sampled = self.sample(n)
 
         data = []
-        titles = []
+        title = []
         for field_id in np.unique(sampled[:, 0]):
             field = self.samplers[field_id][0].field
             matrix = np.zeros_like(field.zero_traces, dtype=np.int32)
@@ -759,19 +784,16 @@ class SeismicSampler(Sampler):
             field_data = [matrix, field.zero_traces]
             data.append(field_data)
 
-            title = f'{self.field_names[field_id]}: {len(sampled_)} points'
-            titles.append(title)
+            field_title = f'{field.displayed_name}: {len(sampled_)} points'
+            title.append(field_title)
 
-        ncols, nrows = MatplotlibPlotter.infer_cols_rows(n_subplots=len(data), params=kwargs)
-        # add extra axis for legend plot no space left on a grid of inferred cols and rows
-        if ncols * nrows == len(data):
-            nrows += 1
+        ncols, nrows = MatplotlibPlotter.infer_cols_rows(n_subplots=len(data) + 1, params=kwargs)
 
         kwargs = {
             'matrix_name': 'Sampled slices',
             'cmap': [['Reds', 'black']] * len(data),
             'alpha': [[1.0, 0.4]] * len(data),
-            'title': titles,
+            'title': title,
             'interpolation': 'bilinear',
             'xlabel': field.index_headers[0],
             'ylabel': field.index_headers[1],

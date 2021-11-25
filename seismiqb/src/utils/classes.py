@@ -390,6 +390,7 @@ class Accumulator3D:
             MaxAccumulator3D: ['max', 'maximum'],
             MeanAccumulator3D: ['mean', 'avg', 'average'],
             GMeanAccumulator3D: ['gmean', 'geometric'],
+            ModeAccumulator3D: ['mode']
         }
         aggregation_to_class = {alias: class_ for class_, lst in class_to_aggregation.items()
                                 for alias in lst}
@@ -489,6 +490,36 @@ class GMeanAccumulator3D(Accumulator3D):
 
         # Cleanup
         self.remove_placeholder('counts')
+
+
+class ModeAccumulator3D(Accumulator3D):
+    """ Accumulator that takes mode value in overlapping crops. """
+    def __init__(self, shape=None, origin=None, dtype=np.float32,
+                 n_classes=2, transform=None, path=None, **kwargs):
+        # Create placeholder with counters for each class
+        self.fill_value = 0
+        self.n_classes = n_classes
+
+        shape = (*shape, n_classes)
+        origin = (*origin, 0)
+
+        super().__init__(shape=shape, origin=origin, dtype=dtype, transform=transform, path=path, **kwargs)
+
+        self.create_placeholder(name='data', dtype=self.dtype, fill_value=self.fill_value)
+
+    def _update(self, crop, location):
+        # Update class counters in location
+        crop = np.eye(self.n_classes)[crop]
+        self.data[location] += crop
+
+    def _aggregate(self):
+        # Choose the most frequently seen class value
+        if self.type == 'hdf5':
+            for i in range(self.data.shape[0]):
+                self.data[i] = np.argmax(self.data[i], axis=-1)
+
+        elif self.type == 'numpy':
+            self.data = np.argmax(self.data, axis=-1)
 
 
 class AccumulatorBlosc(Accumulator3D):
@@ -696,6 +727,43 @@ class AugmentedDict(OrderedDict):
         """ List of all dictionary values. """
         return self.flatten()
 
+class NamedArray(np.ndarray):
+    """ Extension of `np.ndarray` class that allow storing additional attributes under provided names.
+
+    Examples
+    --------
+    >>> arr = np.arange(10)
+    >>> named_arr = NamedArray(arr, description='Array of decimal digits')
+    >>> named_arr.plot_color = 'firebrick'
+    """
+    def __new__(cls, array, dtype=None, **kwargs):
+        obj = np.asarray(a=array, dtype=dtype).view(cls)
+
+        inherited = {name : getattr(array, name) for name in getattr(array, 'names', [])}
+        kwargs = {**inherited, **kwargs}
+
+        obj.names = list(kwargs.keys())
+        for name in obj.names:
+            setattr(obj, name, kwargs[name])
+        return obj
+
+    def __setattr__(self, key, value):
+        if hasattr(self, 'names') and key not in self.names:
+            self.names.append(key)
+        super().__setattr__(key, value)
+
+    def __delattr__(self, key):
+        if hasattr(self, 'names') and key in self.names:
+            self.names.pop(self.names.index(key))
+        super().__delattr__(key)
+
+    def __array_finalize__(self, obj):
+        if obj is not None:
+            self.names = getattr(obj, 'names', [])
+            if self.names is not None:
+                for name in self.names:
+                    value = getattr(obj, name, None)
+                    setattr(self, name, value)
 
 
 class MetaDict(dict):

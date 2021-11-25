@@ -29,3 +29,16 @@ jobs:
 
     - name: Run 'import' in installed environment
       run: python -c 'import seismiqb'
+
+    - name: Checkout SeismiQB
+      uses: actions/checkout@v2
+      with:
+        submodules: true
+
+    - name: Run basic tests
+      env:
+        TESTS_SCRIPTS_DIR: ${{ github.workspace }}/seismiqb/tests/
+      working-directory: ${{ github.workspace }}/seismiqb/
+      run: |
+        pip install -U pytest
+        pytest -m "not slow" --disable-pytest-warnings -v --pyargs seismiqb.tests

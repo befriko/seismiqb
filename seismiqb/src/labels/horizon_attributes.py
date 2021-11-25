@@ -10,7 +10,7 @@ from skimage.measure import label
 from sklearn.decomposition import PCA
 
 from ..functional import smooth_out, special_convolve
-from ..utils import transformable, lru_cache, to_list
+from ..utils import transformable, lru_cache
 
 
 

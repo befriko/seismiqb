@@ -383,3 +383,21 @@ def make_savepath(path, name, extension=''):
         os.makedirs(dir_path, exist_ok=True)
 
     return path
+
+def apply_nested(function, items, **kwargs):
+    """ Apply `function` to each of `items`, keeping the same nestedness. Works with lists only. """
+    # Not a list
+    if not isinstance(items, list):
+        return function(items, **kwargs)
+
+    # Simple list
+    if all(not isinstance(item, list) for item in items):
+        return [function(item, **kwargs) for item in items]
+
+    # Nested list
+    result = []
+    for item in items:
+        item = item if isinstance(item, list) else [item]
+        result.append(apply_nested(function, item, **kwargs))
+
+    return result

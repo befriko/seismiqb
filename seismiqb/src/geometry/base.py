@@ -558,6 +558,11 @@ class SeismicGeometry(ExportMixin):
         return tuple(self.cube_shape)
 
     @property
+    def bbox(self):
+        """ Bounding box that define field limits. """
+        return np.array([[0, max] for max in self.shape])
+
+    @property
     def spatial_shape(self):
         """ Shape of indexing axis. """
         return self.shape[:2]

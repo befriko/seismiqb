@@ -835,7 +835,7 @@ class SeismicCropBatch(Batch):
         ----------
         patch_shape : array-like
             Shape or patches along each axis.
-        n : number
+        n_patches : number
             Number of patches to cut.
         fill_value : number
             Value to fill patches with.
@@ -852,7 +852,7 @@ class SeismicCropBatch(Batch):
         return copy_
 
     @apply_parallel
-    def rotate(self, crop, angle):
+    def rotate(self, crop, angle, fill_value=0):
         """ Rotate crop along the first two axes. Angles are defined as Tait-Bryan angles and the sequence of
         extrinsic rotations axes is (axis_2, axis_0, axis_1).
 
@@ -861,23 +861,25 @@ class SeismicCropBatch(Batch):
         angle : float or tuple of floats
             Angles of rotation about each axes (axis_2, axis_0, axis_1). If float, angle of rotation
             about the last axis.
+        fill_value : number
+            Value to put at empty positions appeared after crop roration.
         """
         angle = angle if isinstance(angle, (tuple, list)) else (angle, 0, 0)
-        crop = self._rotate(crop, angle[0])
+        crop = self._rotate(crop, angle[0], fill_value)
         if angle[1] != 0:
             crop = crop.transpose(1, 2, 0)
-            crop = self._rotate(crop, angle[1])
+            crop = self._rotate(crop, angle[1], fill_value)
             crop = crop.transpose(2, 0, 1)
         if angle[2] != 0:
             crop = crop.transpose(2, 0, 1)
-            crop = self._rotate(crop, angle[2])
+            crop = self._rotate(crop, angle[2], fill_value)
             crop = crop.transpose(1, 2, 0)
         return crop
 
-    def _rotate(self, crop, angle):
+    def _rotate(self, crop, angle, fill_value):
         shape = crop.shape
         matrix = cv2.getRotationMatrix2D((shape[1]//2, shape[0]//2), angle, 1)
-        return cv2.warpAffine(crop, matrix, (shape[1], shape[0])).reshape(shape)
+        return cv2.warpAffine(crop, matrix, (shape[1], shape[0]), borderValue=fill_value).reshape(shape)
 
     @apply_parallel
     def flip(self, crop, axis=0, seed=0.1, threshold=0.5):
