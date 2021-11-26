@@ -318,14 +318,14 @@ class MatplotlibPlotter:
         # title
         keys = ['title', 'y'] + TEXT_KEYS
         params = filter_parameters(ax_params, keys, prefix='title_', index=ax_num)
-        params['label'] = params.pop('title', None) or params.pop('label', None)
+        params['label'] = params.pop('title', params.pop('label', None))
         if params:
             ax.set_title(**params)
 
         # suptitle
         keys = ['suptitle', 't', 'y'] + TEXT_KEYS
         params = filter_parameters(ax_params, keys, prefix='suptitle_')
-        params['t'] = params.pop('t', None) or params.pop('suptitle', None) or params.pop('label', None)
+        params['t'] = params.pop('t', params.pop('suptitle', params.pop('label', None)))
         if params:
             ax.figure.suptitle(**params)
 
@@ -679,6 +679,11 @@ class MatplotlibPlotter:
         """
         for image_num, array in enumerate(data):
             array = array.flatten()
+
+            bad_values = filter_parameters(kwargs, ['bad_values'], index=image_num)
+            for bad_value in bad_values.get('bad_values', []):
+                array = array[array != bad_value]
+
             params = filter_parameters(kwargs, ['bins', 'color', 'alpha'], prefix='hist_', index=image_num)
             ax.hist(array, **params)
 

@@ -1,5 +1,6 @@
 """ Mixin with computed along horizon geological attributes. """
 # pylint: disable=too-many-statements
+from copy import copy
 import numpy as np
 
 from cv2 import dilate
@@ -460,7 +461,11 @@ class AttributesMixin:
     @transformable
     def get_property(self, src, **_):
         """ Load a desired instance attribute. Decorated to allow additional postprocessing steps. """
-        return getattr(self, src)
+        data = copy(getattr(self, src, None))
+        if data is None:
+            aliases = list(self.ALIAS_TO_ATTRIBUTE.keys())
+            raise ValueError(f'Unknown `src` {src}. Expected a matrix-property or one of {aliases}.')
+        return data
 
     @lru_cache(maxsize=1, apply_by_default=False, copy_on_return=True)
     @transformable
@@ -637,7 +642,7 @@ class AttributesMixin:
 
     @lru_cache(maxsize=1, apply_by_default=False, copy_on_return=True)
     @transformable
-    def get_gradient_map(self, threshold=0, **_):
+    def get_gradient_map(self, threshold=None, **_):
         """ Compute combined gradient map along both directions.
 
         Parameters
@@ -648,10 +653,12 @@ class AttributesMixin:
         grad_i = self.load_attribute('grad_i', on_full=True, dtype=np.float32, use_cache=False)
         grad_x = self.load_attribute('grad_x', on_full=True, dtype=np.float32, use_cache=False)
 
-        grad_i[np.abs(grad_i) <= threshold] = 0
-        grad_x[np.abs(grad_x) <= threshold] = 0
+        if threshold is not None:
+            grad_i[np.abs(grad_i) <= threshold] = 0
+            grad_x[np.abs(grad_x) <= threshold] = 0
 
         grad = grad_i + grad_x
+        grad[np.abs(grad) > self.h_min] = np.nan
         grad[self.field.zero_traces == 1] = np.nan
         return grad
 

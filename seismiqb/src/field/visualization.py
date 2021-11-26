@@ -5,7 +5,7 @@ from matplotlib import pyplot as plt
 from matplotlib.cbook import flatten
 
 from .viewer import FieldViewer
-from ..utils import apply_nested, NamedArray
+from ..utils import apply_nested
 from ..plotters import plot_image, MatplotlibPlotter, show_3d
 
 
@@ -241,23 +241,24 @@ class VisualizationMixin:
 
         # Transform load params into dicts, populate them with defaults and load data
         load_params = apply_nested(self._make_load_params, attributes)
-        data = apply_nested(self._load_data, load_params, method=self.load_attribute, **(load_kwargs or {}))
+        load_params = apply_nested(self._load_data, load_params, method=self.load_attribute, **(load_kwargs or {}))
+        data = apply_nested(lambda params: params['data'], load_params)
 
         # Plot params for attributes
         plot_defaults = {
             'tight_layout': True,
             'return_figure': True,
             'suptitle': f'Field `{self.displayed_name}`',
-            'cmap': apply_nested(self._make_cmap, data),
-            'alpha': apply_nested(self._make_alpha, data),
+            'cmap': apply_nested(self._make_cmap, load_params),
+            'alpha': apply_nested(self._make_alpha, load_params),
             'title': [item[0] if isinstance(item, list) else item
-                      for item in flatten([apply_nested(self._make_title, data)])]
+                      for item in flatten([apply_nested(self._make_title, load_params)])]
         }
 
         if bbox:
             plot_defaults['xlim'] = []
             plot_defaults['ylim'] = []
-            for lims in apply_nested(lambda instance: [instance.bbox], data):
+            for lims in apply_nested(lambda params: [params['bbox']], load_params):
                 (x_min, x_max), (y_min, y_max), (_, _) = np.stack(lims).reshape(-1, 3, 2).transpose(1, 2, 0)
                 plot_defaults['xlim'].append((min(x_min), max(x_max)))
                 plot_defaults['ylim'].append((max(y_max), min(y_min)))
@@ -273,7 +274,7 @@ class VisualizationMixin:
         elif mode != 'hist':
             raise ValueError(f"Valid modes are 'imshow' or 'hist', but '{mode}' was given.")
 
-        first_label_name = next(flatten([apply_nested(lambda data: data.label_name, data)]))
+        first_label_name = next(flatten([apply_nested(lambda params: params['label_name'], load_params)]))
         savepath = self.make_path(savepath, name=first_label_name) if savepath is not None else None
 
         # Plot image with given params and return resulting figure
@@ -325,26 +326,25 @@ class VisualizationMixin:
         postprocess = load_params.pop('postprocess', lambda x: x)
 
         attribute_name = load_params['attribute_name']
-        # Already an array: no further actions needed
+        # Already an array: no loading needed
         if attribute_name == 'user data':
             data = load_params['src']
-            bbox = np.array([[0, data.shape[0]],
-                             [0, data.shape[1]],
-                             [0, data.shape[2]] if data.ndim > 2 else [None, None]]
-                             )
-            label_name = ''
+            load_params['label_name'] = ''
+            load_params['bbox'] = np.array([[0, data.shape[0]],
+                                            [0, data.shape[1]],
+                                            [0, data.shape[2]] if data.ndim > 2 else [None, None]]
+                                            )
         # Load data with `load_attribute`
         else:
             data, label = method(_return_label=True, **load_params)
-            bbox = label.bbox
-            label_name = label.displayed_name
+            load_params['label_name'] = label.displayed_name
+            load_params['bbox'] = label.bbox
 
-        data = postprocess(data.squeeze())
-        data = NamedArray(data, bbox=bbox, attribute_name=attribute_name, label_name=label_name)
-        return data
+        load_params['data'] = postprocess(data.squeeze())
+        return load_params
 
     @staticmethod
-    def _make_cmap(data):
+    def _make_cmap(params):
         linkage = {
             'Depths': ['depths', 'matrix', 'full_matrix'],
             'Reds': ['spikes', 'quality_map'],
@@ -352,10 +352,11 @@ class VisualizationMixin:
             'generate': ['masks', 'full_binary_matrix']
         }
 
+        attribute_name = params['attribute_name']
         for cmap, names in linkage.items():
-            if data.attribute_name in names:
+            if attribute_name in names:
                 if cmap == 'generate':
-                    global_name = ''.join(filter(lambda x: x.isalpha(), data.attribute_name))
+                    global_name = ''.join(filter(lambda x: x.isalpha(), attribute_name))
                     if global_name not in NAME_TO_COLOR:
                         NAME_TO_COLOR[global_name] = next(COLOR_GENERATOR)
                     cmap = NAME_TO_COLOR[global_name]
@@ -364,14 +365,17 @@ class VisualizationMixin:
         return 'Basic'
 
     @staticmethod
-    def _make_alpha(data):
-        if data.attribute_name in ['masks', 'full_binary_matrix']:
+    def _make_alpha(params):
+        attribute_name = params['attribute_name']
+        if attribute_name in ['masks', 'full_binary_matrix']:
             return 0.7
         return 1.0
 
     @staticmethod
-    def _make_title(data):
-        return f'`{data.label_name}`\n{data.attribute_name}'
+    def _make_title(params):
+        label_name = params['label_name']
+        attribute_name = params['attribute_name']
+        return f'`{label_name}`\n{attribute_name}' if label_name else attribute_name
 
 
     # 2D interactive

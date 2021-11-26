@@ -727,44 +727,6 @@ class AugmentedDict(OrderedDict):
         """ List of all dictionary values. """
         return self.flatten()
 
-class NamedArray(np.ndarray):
-    """ Extension of `np.ndarray` class that allow storing additional attributes under provided names.
-
-    Examples
-    --------
-    >>> arr = np.arange(10)
-    >>> named_arr = NamedArray(arr, description='Array of decimal digits')
-    >>> named_arr.plot_color = 'firebrick'
-    """
-    def __new__(cls, array, dtype=None, **kwargs):
-        obj = np.asarray(a=array, dtype=dtype).view(cls)
-
-        inherited = {name : getattr(array, name) for name in getattr(array, 'names', [])}
-        kwargs = {**inherited, **kwargs}
-
-        obj.names = list(kwargs.keys())
-        for name in obj.names:
-            setattr(obj, name, kwargs[name])
-        return obj
-
-    def __setattr__(self, key, value):
-        if hasattr(self, 'names') and key not in self.names:
-            self.names.append(key)
-        super().__setattr__(key, value)
-
-    def __delattr__(self, key):
-        if hasattr(self, 'names') and key in self.names:
-            self.names.pop(self.names.index(key))
-        super().__delattr__(key)
-
-    def __array_finalize__(self, obj):
-        if obj is not None:
-            self.names = getattr(obj, 'names', [])
-            if self.names is not None:
-                for name in self.names:
-                    value = getattr(obj, name, None)
-                    setattr(self, name, value)
-
 
 class MetaDict(dict):
     """ Dictionary that can dump itself on disk in a human-readable and human-editable way.
