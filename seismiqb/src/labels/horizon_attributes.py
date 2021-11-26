@@ -697,7 +697,7 @@ class AttributesMixin:
 
     # Clustering
     @transformable
-    def cluster(self, clusterer, attributes, scales=None, add_coordinates=True, **kwargs):
+    def cluster(self, clusterer, attributes, **kwargs):
         """ Apply provided clustering function to requested horizon attributes.
 
         Parameters
@@ -707,23 +707,14 @@ class AttributesMixin:
             and return array of (n_samples,) shape.
         attributes : str, dict, list of str, list of dict
             Attribute load parameters compatible with `:meth:~.load_attribute`.
-        scales : number or list of numbers, optional
-            Scaling values for corresponding attributes.
-        add_coordinates : bool
-            Whether add coordinates as extra features to every sample.
         kwargs : dict
             Additional arguments to pass to the clustering function.
         """
-        attributes = [{'src': attribute} if isinstance(attribute, str) else attribute
-                      for attribute in to_list(attributes)]
-        scales = [1] * len(attributes) if scales is None else to_list(scales)
+        load = [{'src': attr} if isinstance(attr, str) else attr for attr in to_list(attributes)]
+        data = [self.load_attribute(np.float32, on_full=True, **params) for params in load]
 
         i, x = self.points.T[:2]
-        features = [self.load_attribute(dtype=np.float32, on_full=True, **attribute)[i, x] * scale
-                    for attribute, scale in zip(attributes, scales)]
-        if add_coordinates:
-            features += [self.points.astype(np.float32)]
-        features = np.concatenate(features, axis=1)
+        features = np.concatenate(data, axis=-1)[i, x]
 
         cluster_labels = clusterer(features, **kwargs)
 
