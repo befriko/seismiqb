@@ -18,7 +18,7 @@ from ..utils import transformable, lru_cache, to_list
 class AttributesMixin:
     """ Geological attributes along horizon:
     - scalars computed from its depth map only: number of holes, perimeter, coverage
-    - matrices computed from its depth map only: presence matrix, gradients along directions, etc
+    - matrices computed from its depth map only: full binary matrix, gradients along directions, etc
     - properties of a carcass
     - methods to cut data from the cube along horizon
     - matrices derived from amplitudes along horizon: instant amplitudes/phases, decompositions, etc.
@@ -387,7 +387,7 @@ class AttributesMixin:
         'get_spikes_map': ['spikes, spikes_map'],
         # Horizon properties
         'full_matrix': ['depths', 'heights'],
-        'full_binary_matrix': ['masks', 'presence_matrix']
+        'full_binary_matrix': ['mask']
     }
     ALIAS_TO_ATTR = {alias: name for name, aliases in ATTR_TO_ALIAS.items() for alias in aliases}
 
@@ -411,7 +411,7 @@ class AttributesMixin:
             - 'fourier_decomposition' or 'fourier': fourier transform with optional PCA;
             - 'wavelet decomposition' or 'wavelet': wavelet transform with optional PCA;
             - 'full_matrix' or 'depths': horizon depth map in cubic coordinates;
-            - 'full_binary_matrix', 'presence_matrix' or 'masks': mask of horizon presence;
+            - 'full_binary_matrix' or 'mask': mask of horizon presence;
         location : sequence of 3 slices
             First two slices are used as `iline` and `xline` ranges to cut crop from.
             Last 'depth' slice is not used, since points are sampled exactly on horizon.

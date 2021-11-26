@@ -197,7 +197,7 @@ class VisualizationMixin:
         >>> field.show('mean_matrix')
 
         Display attribute of a fan over the geometry map:
-        >>> field.show(['mean_matrix', 'fans:0/masks'])
+        >>> field.show(['mean_matrix', 'fans:0/mask'])
 
         Display attributes on separate axis:
         >>> field.show(['mean_matrix', 'horizons:0/fourier', custom_data_array], separate=True)
@@ -212,7 +212,7 @@ class VisualizationMixin:
 
         Display several attributes on multiple axes with overlays and save it near the cube:
         >>> field.show(['geometry/std_matrix', 'horizons:3/amplitudes',
-                        ['horizons:3/instant_phases', 'fans:3/masks'],
+                        ['horizons:3/instant_phases', 'fans:3/mask'],
                         ['horizons:3/instant_phases', predicted_mask]],
                        savepath='~/IMAGES/complex.png')
         """
@@ -308,7 +308,7 @@ class VisualizationMixin:
             if attribute_name in ['fourier', 'wavelet', 'fourier_decomposition', 'wavelet_decomposition']:
                 params['n_components'] = attribute.get('n_components', 1)
 
-            if attribute_name in ['masks', 'full_binary_matrix']:
+            if attribute_name in ['mask', 'full_binary_matrix']:
                 params['fill_value'] = 0
 
             return params
@@ -349,7 +349,7 @@ class VisualizationMixin:
             'Depths': ['depths', 'matrix', 'full_matrix'],
             'Reds': ['spikes', 'quality_map'],
             'Metric': ['metric', 'metrics'],
-            'generate': ['masks', 'full_binary_matrix']
+            'generate': ['mask', 'full_binary_matrix']
         }
 
         attribute_name = params['attribute_name']
@@ -367,7 +367,7 @@ class VisualizationMixin:
     @staticmethod
     def _make_alpha(params):
         attribute_name = params['attribute_name']
-        if attribute_name in ['masks', 'full_binary_matrix']:
+        if attribute_name in ['mask', 'full_binary_matrix']:
             return 0.7
         return 1.0
 
