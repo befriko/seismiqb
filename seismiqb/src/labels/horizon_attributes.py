@@ -173,6 +173,8 @@ class AttributesMixin:
         """ A method for getting binary matrix in cubic coordinates. Allows for introspectable cache. """
         return self.matrix_put_on_full(self.binary_matrix)
 
+    mask = full_binary_matrix
+
 
     # Scalars computed from depth map
     @property
