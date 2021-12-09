@@ -43,10 +43,10 @@ def transformable(method):
             result = instance.matrix_put_on_full(result)
         if normalize and hasattr(instance, 'matrix_normalize'):
             result = instance.matrix_normalize(result, normalize)
-        if enlarge and hasattr(instance, 'matrix_enlarge'):
-            result = instance.matrix_enlarge(result, width=enlarge_width)
         if fill_value is not None and hasattr(instance, 'matrix_fill_to_num'):
             result = instance.matrix_fill_to_num(result, value=fill_value)
+        if enlarge and hasattr(instance, 'matrix_enlarge'):
+            result = instance.matrix_enlarge(result, width=enlarge_width)
         if atleast_3d:
             result = np.atleast_3d(result)
         if n_components and hasattr(instance, 'pca_transform'):

@@ -11,6 +11,7 @@ import psutil
 import h5py
 
 from .export import ExportMixin
+from ..utils import CacheMixin
 
 from ..utils import file_print, get_environ_flag, lru_cache, transformable
 from ..plotters import plot_image
@@ -79,7 +80,7 @@ def add_descriptors(cls):
 
 
 @add_descriptors
-class SeismicGeometry(ExportMixin):
+class SeismicGeometry(CacheMixin, ExportMixin):
     """ Class to infer information about seismic cube in various formats, and provide API for data loading.
 
     During the SEG-Y processing, a number of statistics are computed. They are saved next to the cube under the
@@ -477,36 +478,6 @@ class SeismicGeometry(ExportMixin):
                                                        margin=margin, **kwargs)
         self._quality_grid = quality_grid
         return quality_grid
-
-
-    # Cache: introspection and reset
-    def reset_cache(self):
-        """ Clear cached slides. """
-        if self.structured is False:
-            method = self.load_slide
-        else:
-            method = self._cached_load
-        method.reset(instance=self)
-
-    @property
-    def cache_length(self):
-        """ Total amount of cached slides. """
-        if self.structured is False:
-            method = self.load_slide
-        else:
-            method = self._cached_load
-
-        return len(method.cache()[self])
-
-    @property
-    def cache_size(self):
-        """ Total size of cached slides. """
-        if self.structured is False:
-            method = self.load_slide
-        else:
-            method = self._cached_load
-
-        return sum(item.nbytes / (1024 ** 3) for item in method.cache()[self].values())
 
 
     # Properties

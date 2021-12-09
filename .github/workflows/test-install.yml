@@ -1,19 +1,40 @@
-name: PR
+name: Tests
 
 on:
   pull_request:
     branches:
     - master
 
+  push:
+    branches:
+    - master
+
 jobs:
+
+  set_matrix:
+
+    runs-on: ubuntu-latest
+
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+
+    steps:
+    - id: set-matrix
+      shell: bash
+      run: |
+        if ${{ github.event_name == 'pull_request' }}; then
+          echo "::set-output name=matrix::{\"os\":[\"ubuntu-latest\"], \"python-version\":[3.6, 3.7, 3.8]}"
+        else
+          echo "::set-output name=matrix::{\"os\":[\"ubuntu-latest\", \"windows-latest\"], \"python-version\":[3.6, 3.7, 3.8]}"
+        fi
 
   test_install:
 
     runs-on: ${{ matrix.os }}
+    needs: set_matrix
+
     strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        python-version: [3.6, 3.7, 3.8]
+      matrix: ${{fromJSON(needs.set_matrix.outputs.matrix)}}
 
     steps:
     - name: Set up Python ${{ matrix.python-version }} on ${{ matrix.os }}
