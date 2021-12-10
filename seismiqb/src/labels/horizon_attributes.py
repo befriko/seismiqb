@@ -18,7 +18,7 @@ from ..utils import transformable, lru_cache, to_list
 class AttributesMixin:
     """ Geological attributes along horizon:
     - scalars computed from its depth map only: number of holes, perimeter, coverage
-    - matrices computed from its depth map only: full binary matrix, gradients along directions, etc
+    - matrices computed from its depth map only: presence mask, gradients along directions, etc
     - properties of a carcass
     - methods to cut data from the cube along horizon
     - matrices derived from amplitudes along horizon: instant amplitudes/phases, decompositions, etc.
@@ -375,22 +375,35 @@ class AttributesMixin:
 
 
     # Generic attributes loading
-    ATTR_TO_ALIAS = {
-        # Horizon methods
-        'get_cube_values': ['amplitudes', 'cube_values'],
-        'get_metric': ['metric', 'metrics'],
-        'get_instantaneous_phases': ['iphases', 'instant_phases', 'instantaneous_phases'],
-        'get_instantaneous_amplitudes': ['iamplitudes', 'instant_amplitudes', 'instantaneous_amplitudes'],
-        'get_fourier_decomposition': ['fourier', 'fourier_decomposition'],
-        'get_wavelet_decomposition': ['wavelet', 'wavelet_decomposition'],
-        'get_median_diff_map': ['mdiff', 'median_diff', 'median_diff'],
-        'get_gradient_map': ['grad', 'gradient, gradient_map'],
-        'get_spikes_map': ['spikes, spikes_map'],
-        # Horizon properties
-        'full_matrix': ['depths', 'heights'],
-        'full_binary_matrix': ['mask']
+    ATTRIBUTE_TO_ALIAS = {
+        # Properties
+        'full_matrix': ['full_matrix', 'depths'],
+        'full_binary_matrix': ['full_binary_matrix', 'mask'],
+
+        # Created by `get_*` methods
+        'amplitudes': ['amplitudes', 'cube_values'],
+        'metric': ['metric', 'metrics'],
+        'instantaneous_phases': ['instant_phases', 'iphases'],
+        'instantaneous_amplitudes': ['instant_amplitudes', 'iamplitudes'],
+        'fourier_decomposition': ['fourier', 'fourier_decomposition'],
+        'wavelet_decomposition': ['wavelet', 'wavelet_decomposition'],
+        'median_diff': ['median_diff', 'mdiff'],
+        'grad': ['grad', 'gradient'],
+        'spikes': ['spikes'],
     }
-    ALIAS_TO_ATTR = {alias: name for name, aliases in ATTR_TO_ALIAS.items() for alias in aliases}
+    ALIAS_TO_ATTRIBUTE = {alias: name for name, aliases in ATTRIBUTE_TO_ALIAS.items() for alias in aliases}
+
+    ATTRIBUTE_TO_METHOD = {
+        'amplitudes' : 'get_cube_values',
+        'metric' : 'get_metric',
+        'instantaneous_phases' : 'get_instantaneous_phases',
+        'instantaneous_amplitudes' : 'get_instantaneous_amplitudes',
+        'fourier_decomposition' : 'get_fourier_decomposition',
+        'wavelet_decomposition' : 'get_wavelet_decomposition',
+        'median_diff': 'get_median_diff_map',
+        'grad': 'get_gradient_map',
+        'spikes': 'get_spikes_map'
+    }
 
     def load_attribute(self, src, location=None, use_cache=True, enlarge=False, **kwargs):
         """ Load horizon attribute values at requested location.
@@ -405,10 +418,10 @@ class AttributesMixin:
             Key of the desired attribute. Valid attributes are either properties or aliases, defined
             by `ALIAS_TO_ATTRIBUTE` mapping, for example:
 
-            - 'cube_values' or 'amplitudes': cube values;
-            - 'metrics' or 'metric': random support metrics matrix.
-            - 'instantaneous_phases' or 'instant_phases': instantaneous phase;
-            - 'instantaneous_amplitudes' or 'instant_amplitudes': instantaneous amplitude;
+            - 'cube_values' or 'amplitudes': cube values at horizon points;
+            - 'metrics' or 'metric': horizon random support metrics.
+            - 'instantaneous_phases', 'instant_phases' or 'iphases': instantaneous phase;
+            - 'instantaneous_amplitudes', 'instant_amplitudes' or 'iamplitudes': instantaneous amplitude;
             - 'fourier_decomposition' or 'fourier': fourier transform with optional PCA;
             - 'wavelet decomposition' or 'wavelet': wavelet transform with optional PCA;
             - 'full_matrix' or 'depths': horizon depth map in cubic coordinates;
@@ -421,7 +434,7 @@ class AttributesMixin:
             Whether to enlarge carcass maps. Defaults to True, if the horizon is a carcass, False otherwise.
             Should be used only for visualization purposes.
         kwargs :
-            Passed directly to attribute-evaluating methods from :attr:`.ALIAS_TO_ATTR` depending on `src`.
+            Passed directly to attribute-evaluating methods from :attr:`.ALIAS_TO_ATTRIBUTE` depending on `src`.
 
         Examples
         --------
@@ -434,20 +447,14 @@ class AttributesMixin:
         Load 'metrics' attribute with specific evaluation parameter and following normalization.
         >>> horizon.load_attribute('metrics', metric='local_corrs', normalize='min-max')
         """
-        kwargs['enlarge'] = enlarge and self.is_carcass
+        src = self.ALIAS_TO_ATTRIBUTE.get(src, src)
+        enlarge = enlarge and self.is_carcass
 
-        attr_name = self.ALIAS_TO_ATTR.get(src, src)
-        class_attr = getattr(type(self), attr_name, None)
-
-        if hasattr(class_attr, 'cache'):
-            kwargs['use_cache'] = use_cache
-
-        if callable(class_attr) and attr_name in self.ATTR_TO_ALIAS:
-            data = class_attr(self, **kwargs)
-        elif isinstance(class_attr, property):
-            data = self.get_property(attr_name, **kwargs)
+        if src in self.ATTRIBUTE_TO_METHOD:
+            method = self.ATTRIBUTE_TO_METHOD[src]
+            data = getattr(self, method)(use_cache=use_cache, enlarge=enlarge, **kwargs)
         else:
-            raise ValueError(f"Unknown attribute requested: {src}")
+            data = self.get_property(src, enlarge=enlarge, **kwargs)
 
         # TODO: Someday, we would need to re-write attribute loading methods
         # so they use locations not to crop the loaded result, but to load attribute only at location.
@@ -715,7 +722,7 @@ class AttributesMixin:
             Additional arguments to pass to the clustering function.
         """
         load = [{'src': attr} if isinstance(attr, str) else attr for attr in to_list(attributes)]
-        data = [self.load_attribute(np.float32, on_full=True, **params) for params in load]
+        data = [self.load_attribute(dtype=np.float32, on_full=True, **params) for params in load]
 
         i, x = self.points.T[:2]
         features = np.concatenate(data, axis=-1)[i, x]
