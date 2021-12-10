@@ -612,44 +612,65 @@ class LoopedList(list):
 
 
 class AugmentedList(list):
-    """ List with additional features:
-        - can be indexed with other iterables.
-        - delegates calls to contained objects.
-        For example, `a_list.method()` is equivalent to `[item.method() for item in a_list]`.
-        Can be used to retrieve attributes, properties and call methods.
-        Returns the list of results, which is itself an instance of `AugmentedList`.
-        - auto-completes names to that of contained objects.
+    """ List that delegates attribute retrieval requests to contained objects and can be indexed with other iterables.
+        On successful attribute request returns the list of results, which is itself an instance of `AugmentedList`.
+        Auto-completes names to that of contained objects. Meant to be used for storing homogeneous objects.
+
+        Examples
+        --------
+        1. Let `lst` be an `AugmentedList` of objects that have `mean` method.
+        Than the following expression:
+        >>> lst.mean()
+        Is equivalent to:
+        >>> [item.mean() for item in lst]
+
+        2. Let `lst` be an `AugmentedList` of objects that have `shape` attribute.
+        Than the following expression:
+        >>> lst.shape
+        Is equivalent to:
+        >>> [item.shape for item in lst]
+
+        Notes
+        -----
+        Using `AugmentedList` for heterogeneous objects storage is not recommended, due to the following:
+        1. Tab autocompletion suggests attributes from the first list item only.
+        2. The request of the attribute absent in any of the objects leads to an error.
     """
-    # Advanced indexing
     def __getitem__(self, key):
+        """ Manage indexing via iterable. """
         if isinstance(key, (int, np.integer)):
             return super().__getitem__(key)
-        if isinstance(key, slice):
-            return AugmentedList(super().__getitem__(key))
 
-        return AugmentedList([super().__getitem__(idx) for idx in key])
+        if isinstance(key, slice):
+            return type(self)(super().__getitem__(key))
+
+        return type(self)([super().__getitem__(idx) for idx in key])
 
     # Delegating to contained objects
     def __getattr__(self, key):
+        """ Get attributes of list items, recusively delegating this process to items if they are lists themselves. """
         if len(self) == 0:
             return lambda *args, **kwargs: self
 
-        attribute = getattr(self[0], key)
+        attributes = type(self)([getattr(item, key) for item in self])
 
-        if not callable(attribute):
-            # Attribute or property
-            return AugmentedList([getattr(item, key) for item in self])
+        if not callable(attributes.reference_object):
+            return type(self)(attributes)
 
-        @wraps(attribute)
-        def method_wrapper(*args, **kwargs):
-            return AugmentedList([getattr(item, key)(*args, **kwargs) for item in self])
-        return method_wrapper
+        @wraps(attributes.reference_object)
+        def wrapper(*args, **kwargs):
+            return type(self)([method(*args, **kwargs) for method in attributes])
+
+        return wrapper
+
+    @property
+    def reference_object(self):
+        """ First item of a list taking into account its nestedness. """
+        return self[0].reference_object if isinstance(self[0], type(self)) else self[0]
 
     def __dir__(self):
         """ Correct autocompletion for delegated methods. """
-        if len(self) != 0:
-            return dir(self[0])
-        return dir(list)
+        return dir(list) if len(self) == 0 else dir(self[0])
 
     # Correct type of operations
     def __add__(self, other):
@@ -663,6 +684,87 @@ class AugmentedList(list):
 
     def __rmul__(self, other):
         return self.__mul__(other)
+
+
+class DelegatingList(AugmentedList):
+    """ `AugmentedList` that extends that makes delegation its items' attributes
+
+        Examples
+        --------
+        1. Len `lst` be an `AugmentedList` of objects and `f` be a function that accepts such objects.
+        Than the following expression:
+        >>> lst.apply(f)
+        Is equivalent to:
+        >>> [f(item) for item in lst]
+
+        2. Let `l` be an `AugmentedList` of dictionaries:
+        >>> l = AugmentedList([{'cmap': 'viridis', 'alpha': 1.0},
+                                [{'cmap': 'ocean', 'alpha': 1.0}, {'cmap': 'Reds', 'alpha': 0.7}]])
+        That the following expresion:
+        >>> l.to_dict()
+        Will be evaluated to:
+        >>> {'cmap': ['viridis, ['ocean', 'Reds]], 'alpha': [1.0, [1.0, 0.7]]}
+    """
+    def __init__(self, obj=None):
+        """ Perform items recusive casting to `AugmentedList` type if they are lists. """
+        obj = [] if obj is None else obj if isinstance(obj, list) else [obj]
+        super().__init__([type(self)(item) if isinstance(item, list) else item for item in obj])
+
+    def apply(self, func, *args, shallow=False, **kwargs):
+        """ Recursively traverse list items applying given function and return list of results with same nestedness.
+
+        Parameters
+        ----------
+        func : callable
+            Function to apply to items.
+        shallow : bool
+            If True, apply function directly to outer list items disabling recursive descent.
+        args, kwargs : misc
+            For `func`.
+        """
+        result = type(self)()
+
+        for item in self:
+            if isinstance(item, type(self)) and not shallow:
+                res = item.apply(func, *args, **kwargs)
+            else:
+                res = func(item, *args, **kwargs)
+
+            if isinstance(res, list):
+                res = type(self)(res)
+
+            result.append(res)
+
+        return result
+
+    def to_dict(self):
+        """ Convert nested list of dicts to dict of nested lists. Address class docs for usage examples. """
+        if not isinstance(self.reference_object, dict):
+            raise TypeError('Only lists consisting of `dict` items can be converted.')
+
+        result = {}
+
+        # pylint: disable=cell-var-from-loop
+        for key in self.reference_object:
+            try:
+                result[key] = self.apply(lambda dct: dct[key])
+            except KeyError as e:
+                raise ValueError(f'KeyError occured due to absence of key `{key}` in some of list items.') from e
+
+        return result
+
+    @property
+    def flat(self):
+        """ Flat list of items. """
+        res = type(self)()
+
+        for item in self:
+            if isinstance(item, type(self)):
+                res.extend(item.flat)
+            else:
+                res.append(item)
+
+        return res
 
 
 class AugmentedDict(OrderedDict):
@@ -725,6 +827,7 @@ class AugmentedDict(OrderedDict):
         return self.flatten()
 
 
+
 class MetaDict(dict):
     """ Dictionary that can dump itself on disk in a human-readable and human-editable way.
     Usually describes cube meta info such as name, coordinates (if known) and other useful data.
@@ -757,6 +860,7 @@ class MetaDict(dict):
             'longitude': None,
             'info': 'дополнительная информация о кубе'
         })
+
 
 
 class timer:

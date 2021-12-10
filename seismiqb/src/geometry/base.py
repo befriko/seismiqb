@@ -219,7 +219,7 @@ class SeismicGeometry(CacheMixin, ExportMixin):
 
         # Names of different lengths and format: helpful for outside usage
         self.name = os.path.basename(self.path)
-        self.field_name = self.parse_field()
+        self.field_name = self.extract_field_name()
         self.short_name = os.path.splitext(self.name)[0]
         self.long_name = ':'.join(self.path.split('/')[-2:])
         self.format = os.path.splitext(self.path)[1][1:]
@@ -235,7 +235,7 @@ class SeismicGeometry(CacheMixin, ExportMixin):
             self.process(**kwargs)
 
 
-    def parse_field(self):
+    def extract_field_name(self):
         """ Try to parse field from geometry name. """
 
         # search for a sequence of uppercase letters between '_' and '.' symbols
@@ -391,6 +391,23 @@ class SeismicGeometry(CacheMixin, ExportMixin):
             return (array - min_) / (max_ - min_)
         raise ValueError('Wrong mode', mode)
 
+    # Coordinates transforms
+    def lines_to_cubic(self, array):
+        """ Convert ilines-xlines to cubic coordinates system. """
+        array[:, 0] -= self.ilines_offset
+        array[:, 1] -= self.xlines_offset
+        array[:, 2] -= self.delay
+        array[:, 2] /= self.sample_rate
+        return array
+
+    def cubic_to_lines(self, array):
+        """ Convert cubic coordinates to ilines-xlines system. """
+        array = array.astype(np.float32)
+        array[:, 0] += self.ilines_offset
+        array[:, 1] += self.xlines_offset
+        array[:, 2] *= self.sample_rate
+        array[:, 2] += self.delay
+        return array
 
     # Spatial matrices
     @property

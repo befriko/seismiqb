@@ -5,7 +5,6 @@ from textwrap import dedent
 from functools import partialmethod
 
 import numpy as np
-import pandas as pd
 
 from cv2 import dilate
 from skimage.measure import label
@@ -14,14 +13,14 @@ from scipy.ndimage.morphology import binary_fill_holes, binary_dilation
 
 from .horizon_attributes import AttributesMixin
 from .horizon_visualization import VisualizationMixin
-from ..utils import CacheMixin
+from ..utils import CacheMixin, CharismaMixin
 from ..utils import groupby_mean, groupby_min, groupby_max, filtering_function
 from ..utils import make_bezier_figure
 from ..functional import smooth_out
 
 
 
-class Horizon(AttributesMixin, CacheMixin, VisualizationMixin):
+class Horizon(AttributesMixin, CacheMixin, CharismaMixin, VisualizationMixin):
     """ Contains spatially-structured horizon: each point describes a height on a particular (iline, xline).
 
     Initialized from `storage` and `geometry`, where storage can be one of:
@@ -78,12 +77,6 @@ class Horizon(AttributesMixin, CacheMixin, VisualizationMixin):
         - A wealth of visualization methods: view from above, slices along iline/xline axis, etc.
     """
     #pylint: disable=too-many-public-methods, import-outside-toplevel
-
-    # CHARISMA: default seismic format of storing surfaces inside the 3D volume
-    CHARISMA_SPEC = ['INLINE', '_', 'iline', 'XLINE', '__', 'xline', 'cdp_x', 'cdp_y', 'height']
-
-    # REDUCED_CHARISMA: CHARISMA without redundant columns
-    REDUCED_CHARISMA_SPEC = ['iline', 'xline', 'height']
 
     # Columns that are used from the file
     COLUMNS = ['iline', 'xline', 'height']
@@ -176,8 +169,8 @@ class Horizon(AttributesMixin, CacheMixin, VisualizationMixin):
         If the horizon is created not from matrix, evaluated at the time of the first access.
         """
         if self._matrix is None and self.points is not None:
-            self._matrix = self.points_to_matrix(self.points, self.i_min, self.x_min,
-                                                 self.i_length, self.x_length, self.dtype)
+            self._matrix = self.points_to_matrix(points=self.points, i_min=self.i_min, x_min=self.x_min,
+                                                 i_length=self.i_length, x_length=self.x_length, dtype=self.dtype)
         return self._matrix
 
     @matrix.setter
@@ -188,8 +181,10 @@ class Horizon(AttributesMixin, CacheMixin, VisualizationMixin):
     def points_to_matrix(points, i_min, x_min, i_length, x_length, dtype=np.int32):
         """ Convert array of (N, 3) shape to a depth map (matrix). """
         matrix = np.full((i_length, x_length), Horizon.FILL_VALUE, dtype)
+
         matrix[points[:, 0].astype(np.int32) - i_min,
                points[:, 1].astype(np.int32) - x_min] = points[:, 2]
+
         return matrix
 
     @property
@@ -293,35 +288,14 @@ class Horizon(AttributesMixin, CacheMixin, VisualizationMixin):
         return self._len
 
 
-    # Coordinate transforms
-    def lines_to_cubic(self, array):
-        """ Convert ilines-xlines to cubic coordinates system. """
-        array[:, 0] -= self.field.ilines_offset
-        array[:, 1] -= self.field.xlines_offset
-        array[:, 2] -= self.field.delay
-        array[:, 2] /= self.field.sample_rate
-        return array
-
-    def cubic_to_lines(self, array):
-        """ Convert cubic coordinates to ilines-xlines system. """
-        array = array.astype(np.float32)
-        array[:, 0] += self.field.ilines_offset
-        array[:, 1] += self.field.xlines_offset
-        array[:, 2] *= self.field.sample_rate
-        array[:, 2] += self.field.delay
-        return array
-
-
     # Initialization from different containers
-    def from_points(self, points, transform=False, verify=True, dst='points', reset='matrix', **kwargs):
+    def from_points(self, points, verify=True, dst='points', reset='matrix', **kwargs):
         """ Base initialization: from point cloud array of (N, 3) shape.
 
         Parameters
         ----------
         points : ndarray
             Array of points. Each row describes one point inside the cube: two spatial coordinates and depth.
-        transform : bool
-            Whether transform from line coordinates (ilines, xlines) to cubic system.
         verify : bool
             Whether to remove points outside of the cube range.
         dst : str
@@ -331,9 +305,6 @@ class Horizon(AttributesMixin, CacheMixin, VisualizationMixin):
         """
         _ = kwargs
 
-        # Transform to cubic coordinates, if needed
-        if transform:
-            points = self.lines_to_cubic(points)
         if verify:
             idx = np.where((points[:, 0] >= 0) &
                            (points[:, 1] >= 0) &
@@ -354,30 +325,16 @@ class Horizon(AttributesMixin, CacheMixin, VisualizationMixin):
 
     def from_file(self, path, transform=True, **kwargs):
         """ Init from path to either CHARISMA or REDUCED_CHARISMA csv-like file. """
-        _ = kwargs
         path = self.field.make_path(path, makedirs=False)
-
         self.path = path
+
         self.name = os.path.basename(path) if self.name is None else self.name
-        points = self.file_to_points(path)
-        self.from_points(points, transform, **kwargs)
 
-    @classmethod
-    def file_to_points(cls, path):
-        """ Get point cloud array from file values. """
-        #pylint: disable=anomalous-backslash-in-string
-        with open(path, encoding='utf-8') as file:
-            line_len = len(file.readline().split(' '))
-        if line_len == 3:
-            names = cls.REDUCED_CHARISMA_SPEC
-        elif line_len >= 9:
-            names = cls.CHARISMA_SPEC
-        else:
-            raise ValueError('Horizon labels must be in CHARISMA or REDUCED_CHARISMA format.')
+        points = self.load_charisma(path=path, dtype=np.int32, format='points',
+                                    fill_value=Horizon.FILL_VALUE, transform=transform,
+                                    verify=True)
 
-        df = pd.read_csv(path, sep=r'\s+', names=names, usecols=cls.COLUMNS)
-        df.sort_values(cls.COLUMNS, inplace=True)
-        return df.values
+        self.from_points(points, verify=False, **kwargs)
 
 
     def from_matrix(self, matrix, i_min, x_min, length=None, **kwargs):
@@ -416,7 +373,11 @@ class Horizon(AttributesMixin, CacheMixin, VisualizationMixin):
         _ = kwargs
 
         points = self.dict_to_points(dictionary)
-        self.from_points(points, transform=transform)
+
+        if transform:
+            points = self.field.lines_to_cubic(points)
+
+        self.from_points(points)
 
     @staticmethod
     def dict_to_points(dictionary):
@@ -752,7 +713,7 @@ class Horizon(AttributesMixin, CacheMixin, VisualizationMixin):
             Seed the random numbers generator.
         """
         rng = np.random.default_rng(seed)
-        filtering_matrix = np.zeros_like(self.matrix)
+        filtering_matrix = np.zeros_like(self.full_matrix)
 
         # Generate bezier-like holes
         if isinstance(scale, float):
@@ -1233,42 +1194,6 @@ class Horizon(AttributesMixin, CacheMixin, VisualizationMixin):
 
 
     # Save horizon to disk
-    def dump_charisma(self, points, path, transform=None):
-        """ Save (N, 3) array of points to disk in CHARISMA-compatible format.
-
-        Parameters
-        ----------
-        points : ndarray
-            Array of (N, 3) shape.
-        path : str
-            Path to a file to save horizon to.
-        transform : None or callable
-            If callable, then applied to points after converting to ilines/xlines coordinate system.
-        """
-        points = points if transform is None else transform(points)
-        path = self.field.make_path(path, name=self.short_name)
-
-        df = pd.DataFrame(points, columns=Horizon.COLUMNS)
-        df.sort_values(['iline', 'xline'], inplace=True)
-        df = df.astype({'iline': np.int32, 'xline': np.int32, 'height': np.float32})
-        df.to_csv(path, sep=' ', columns=Horizon.COLUMNS, index=False, header=False)
-
-    def dump_matrix(self, matrix, path, transform=None):
-        """ Save (N_ILINES, N_CROSSLINES) matrix in CHARISMA-compatible format.
-
-        Parameters
-        ----------
-        matrix : ndarray
-            Array of (N_ILINES, N_CROSSLINES) shape with depth values.
-        path : str
-            Path to a file to save horizon to.
-        transform : None or callable
-            If callable, then applied to points after converting to ilines/xlines coordinate system.
-        """
-        points = Horizon.matrix_to_points(matrix)
-        points = self.cubic_to_lines(points)
-        Horizon.dump_charisma(points, path, transform)
-
     def dump(self, path, transform=None):
         """ Save horizon points on disk.
 
@@ -1279,8 +1204,8 @@ class Horizon(AttributesMixin, CacheMixin, VisualizationMixin):
         transform : None or callable
             If callable, then applied to points after converting to ilines/xlines coordinate system.
         """
-        points = self.cubic_to_lines(copy(self.points))
-        self.dump_charisma(points, path, transform)
+        self.dump_charisma(data=copy(self.points), path=path, format='points',
+                           name=self.short_name, transform=transform)
 
     def dump_float(self, path, transform=None, kernel_size=7, sigma=2., margin=5):
         """ Smooth out the horizon values, producing floating-point numbers, and dump to the disk.
@@ -1301,42 +1226,4 @@ class Horizon(AttributesMixin, CacheMixin, VisualizationMixin):
         """
         matrix = self.matrix_smooth_out(matrix=self.full_matrix, kernel_size=kernel_size, sigma=sigma, margin=margin)
         points = self.matrix_to_points(matrix)
-        points = self.cubic_to_lines(points)
-        self.dump_charisma(points, path, transform)
-
-
-    # Utility
-    @staticmethod
-    def is_charisma_like(path, bad_extensions=None, size_threshold=100):
-        """ Check if the path looks like the horizon file.
-
-        Parameters
-        ----------
-        path : str
-            Path of file to check.
-        bad_extensions : list, optional
-            If provided, then list of extensions to consider file not charisma-like.
-        size_threshold : number
-            If file size in kilobytes is less, than the threshold, then file is considered not charisma-like.
-        """
-        bad_extensions = bad_extensions or []
-        bad_extensions.extend(['.py', '.ipynb', '.ckpt',
-                            '.png', '.jpg',
-                            '.log', '.txt', '.torch'])
-
-        try:
-            if os.path.isdir(path):
-                return False
-
-            if max([path.endswith(ext) for ext in bad_extensions]):
-                return False
-
-            if (os.path.getsize(path) / 1024) < size_threshold:
-                return False
-            with open(path, encoding='utf-8') as file:
-                line = file.readline()
-                n = len(line.split(' '))
-            return (n == 3) or (n >= 9 and 'INLINE' in line)
-
-        except UnicodeDecodeError:
-            return False
+        self.dump_charisma(data=points, path=path, format='points', name=self.short_name, transform=transform)

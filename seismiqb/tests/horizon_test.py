@@ -147,7 +147,7 @@ def test_horizon(
     else:
         if SHOW_TEST_ERROR_INFO:
             # Add error traceback into the message
-            msg = extract_traceback(path_ipynb=out_path_ipynb)
+            msg = [extract_traceback(path_ipynb=out_path_ipynb)]
 
         msg.append('\nHorizon tests execution failed.')
 

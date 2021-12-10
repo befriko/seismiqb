@@ -827,12 +827,12 @@ class HorizonMetrics(BaseMetrics):
             hist_dict = {
                 'bins': 100,
                 'xlabel': 'l1-values',
-                'ylabel': 'N',
                 'title_label': 'Histogram of l1 differences',
+                **kwargs,
             }
             plot_image(metric, mode='hist', **hist_dict)
 
-        title = f'Height differences between {self.horizon.name} and {other.name}'
+        title = f'Height differences between\n{self.horizon.name} and {other.name}'
         plot_dict = {
             'spatial': True,
             'title_label': f'{title} on cube {self.horizon.field.displayed_name}',

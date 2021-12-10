@@ -658,6 +658,9 @@ class AttributesMixin:
             grad_i[np.abs(grad_i) <= threshold] = 0
             grad_x[np.abs(grad_x) <= threshold] = 0
 
+        grad_i[grad_i == self.FILL_VALUE] = np.nan
+        grad_x[grad_x == self.FILL_VALUE] = np.nan
+
         grad = grad_i + grad_x
         grad[np.abs(grad) > self.h_min] = np.nan
         grad[self.field.zero_traces == 1] = np.nan

@@ -736,22 +736,22 @@ class SeismicSampler(Sampler):
             xlabel += [field.index_headers[0]] * len(samplers_list)
             ylabel += [field.index_headers[1]] * len(samplers_list)
 
-        ncols, nrows = MatplotlibPlotter.infer_cols_rows(n_subplots=len(data) + 1, params=kwargs)
-
         kwargs = {
             'cmap': [['Sampler', 'black']] * len(data),
             'alpha': [[1.0, 0.4]] * len(data),
-            'ncols': ncols,
-            'nrows': nrows,
+            # 'ncols': ncols,
+            # 'nrows': nrows,
             'title': title,
             'vmin': [[1, 0]] * len(data),
             'vmax': [[3, 1]] * len(data),
             'xlabel': xlabel,
             'ylabel': ylabel,
+            'shapes': 1, # this parameter toggles additional subplot axes creation for further legend display
+            'return_figure': True,
             **kwargs
         }
 
-        fig = plot_image(data, return_figure=True, **kwargs)
+        fig = plot_image(data, **kwargs)
 
         legend_params = {
             'ax': fig.axes[len(data)],
@@ -761,6 +761,7 @@ class SeismicSampler(Sampler):
             'loc': 10,
             'facecolor': 'silver',
         }
+
         MatplotlibPlotter.add_legend(**legend_params)
 
     def show_sampled(self, n=10000, binary=False, **kwargs):
@@ -787,8 +788,6 @@ class SeismicSampler(Sampler):
             field_title = f'{field.displayed_name}: {len(sampled_)} points'
             title.append(field_title)
 
-        ncols, nrows = MatplotlibPlotter.infer_cols_rows(n_subplots=len(data) + 1, params=kwargs)
-
         kwargs = {
             'matrix_name': 'Sampled slices',
             'cmap': [['Reds', 'black']] * len(data),
@@ -797,12 +796,12 @@ class SeismicSampler(Sampler):
             'interpolation': 'bilinear',
             'xlabel': field.index_headers[0],
             'ylabel': field.index_headers[1],
-            'ncols': ncols,
-            'nrows': nrows,
+            'shapes': 1, # this parameter toggles additional subplot axes creation for further legend display
+            'return_figure': True,
             **kwargs
         }
 
-        fig = plot_image(data, return_figure=True, **kwargs)
+        fig = plot_image(data, **kwargs)
 
         legend_params = {
             'ax': fig.axes[len(data)],
@@ -812,6 +811,7 @@ class SeismicSampler(Sampler):
             'loc': 10,
             'facecolor': 'silver',
         }
+
         MatplotlibPlotter.add_legend(**legend_params)
 
 

@@ -14,10 +14,11 @@ from ..geometry import SeismicGeometry
 from ..labels import Horizon, Fault
 from ..metrics import FaciesMetrics
 from ..utils import AugmentedList
+from ..utils import CharismaMixin
 
 
 
-class Field(VisualizationMixin):
+class Field(CharismaMixin, VisualizationMixin):
     """ A common container for all information about the field: cube geometry and various labels.
 
     To initialize, one must provide:

@@ -1,12 +1,11 @@
 """ Mixin for horizon visualization. """
-from functools import partial
 from textwrap import dedent
 
 import numpy as np
 from scipy.spatial import Delaunay
 
 from ..plotters import plot_image, show_3d
-from ..utils import apply_nested, filter_simplices
+from ..utils import AugmentedList, DelegatingList, filter_simplices
 
 
 
@@ -54,10 +53,10 @@ class VisualizationMixin:
                     if label is self:
                         return f'{src}:{idx}'
 
-        # Instance is not attached to a field: add it temporarily (clean-up later)
-        self.field._unknown_label = self
+        # Instance is not attached to a field: add it temporarily (clean-up when finish plot creation)
+        self.field._unknown_label = AugmentedList([self])
         self.field.loaded_labels.append('_unknown_label')
-        return '_unknown_label'
+        return '_unknown_label:0'
 
     @staticmethod
     def _show_add_prefix(attribute, prefix=None):
@@ -70,9 +69,8 @@ class VisualizationMixin:
 
     def show(self, attributes='depths', mode='imshow', return_figure=False, **kwargs):
         """ Field visualization with custom naming scheme. """
-        prefix = self.find_self()
-        add_prefix = partial(self._show_add_prefix, prefix=prefix)
-        attributes = apply_nested(add_prefix, attributes)
+        attributes = DelegatingList(attributes)
+        attributes = attributes.apply(self._show_add_prefix, prefix=self.find_self())
 
         kwargs = {
             'suptitle_label': f'`{self.name}` on field `{self.field.displayed_name}`',
@@ -82,7 +80,7 @@ class VisualizationMixin:
 
         # Clean-up
         if self.field.loaded_labels[-1] == '_unknown_label':
-            self.field._unknown_label = None
+            delattr(self.field, '_unknown_label')
             self.field.loaded_labels.pop(-1)
 
         return figure if return_figure else None
