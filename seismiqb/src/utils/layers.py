@@ -4,6 +4,7 @@ import numpy as np
 from torch import nn
 import torch.nn.functional as F
 from torch.cuda.amp import autocast
+import scipy
 
 from ...batchflow.models.torch import ResBlock
 
@@ -76,27 +77,43 @@ class MovingNormalizationLayer(nn.Module):
     def __init__(self, inputs, window=(1, 1, 100), padding='same', fill_value=0):
         super().__init__()
         self.window = window
-        self.padding = padding
         self.fill_value = fill_value
         self.ndim = inputs.ndim
         self.kernel = torch.ones((1, 1, *window), dtype=inputs.dtype, requires_grad=False).to(inputs.device)
 
+        if padding == 'same':
+            pad = [(w // 2, w - w // 2 - 1) for w in self.window]
+            self.padding = (*pad[2], *pad[1], *pad[0], 0, 0, 0, 0)
+        else:
+            padding = None
+
+    def init_normalizer_map(self, inputs):
+        """ Create normalization map. """
+        normalizer = torch.ones(expand_dims(inputs[:1]).shape, dtype=inputs.dtype, requires_grad=False)
+        normalizer = F.pad(normalizer.to(inputs.device), self.padding)
+        return F.conv3d(normalizer, self.kernel)[0]
+
     @autocast(enabled=False)
     def forward(self, x):
         """ Forward pass. """
+        normalization_map = self.init_normalizer_map(x)
+
         x = expand_dims(x)
-        pad = [(w // 2, w - w // 2 - 1) for w in self.window]
-        if self.padding == 'same':
-            num = F.pad(x, (*pad[2], *pad[1], *pad[0], 0, 0, 0, 0))
-        else:
+
+        if self.padding is None:
             num = x
-        n = np.prod(self.window)
-        mean = F.conv3d(num, self.kernel / n)
-        mean_2 = F.conv3d(num ** 2, self.kernel / n)
-        std = torch.clip(mean_2 - mean ** 2, min=0) ** 0.5
+        else:
+            num = F.pad(x, self.padding)
+
+        mean = F.conv3d(num, self.kernel) / normalization_map
+        mean_2 = F.conv3d(num ** 2, self.kernel) / normalization_map
+        std = torch.clip(mean_2 - mean ** 2, min=1e-10) ** 0.5
+
+        pad = self.padding
         if self.padding == 'valid':
-            x = x[:, :, pad[0][0]:x.shape[2]-pad[0][1], pad[1][0]:x.shape[3]-pad[1][1], pad[2][0]:x.shape[4]-pad[2][1]]
-        result = torch.nan_to_num((x - mean) / std, nan=self.fill_value)
+            x = x[:, :, pad[4]:x.shape[2]-pad[5], pad[2]:x.shape[3]-pad[3], pad[0]:x.shape[4]-pad[1]]
+        result = (x - mean) / std
+        result = torch.nan_to_num(result, nan=self.fill_value)
         return squueze(result, self.ndim)
 
 class SemblanceLayer(nn.Module):
@@ -213,12 +230,16 @@ class InputLayer(nn.Module):
 
     def forward(self, x):
         """ Forward pass. """
+        if self.phases:
+            phases = self.phase_layer(x)
+
         if self.normalization:
             x = self.normalization_layer(x)
             x = torch.clip(x,  -10, 10) # TODO: remove clipping
+
         if self.phases:
-            phases = self.phase_layer(x)
             x = self._concat(x, phases)
+
         x = self.base_block(x)
         return x
 
@@ -261,3 +282,55 @@ class DepthSoftmax(nn.Module):
         width_weights = self.width_weights.to(device=x.device, dtype=x.dtype)
         x = F.conv2d(x, width_weights, padding=(0, 1))
         return x.float()
+
+class GaussianLayer(nn.Module):
+    """ Layer for gaussian smoothing.
+
+    Parameters
+    ----------
+    inputs : torch.Tensor
+
+    kernel_size : int, optional
+        kernel size, by default 5.
+    padding : str, optional
+        'valid' or 'same, by default 'same'.
+    sigma : float or None,  optional
+
+    """
+    def __init__(self, inputs, kernel_size=5, sigma=None, padding='same'):
+        super().__init__()
+        self.ndim = inputs.ndim
+        if isinstance(kernel_size, int):
+            kernel_size = [kernel_size] * 3
+        kernel_size = np.array(kernel_size)
+
+        if isinstance(sigma, int):
+            sigma = [sigma] * 3
+        elif sigma is None:
+            sigma = kernel_size // 3
+        sigma = np.array(sigma)
+
+        kernel = self.gaussian_kernel(kernel_size, sigma)
+        kernel = np.expand_dims(kernel, axis=[0, 1])
+
+        self.kernel_size = kernel_size
+        if padding == 'same':
+            self.padding = [(w // 2, w - w // 2 - 1) for w in self.kernel_size]
+        elif padding == 'valid':
+            self.padding = None
+        else:
+            self.padding = padding
+        self.kernel = torch.tensor(kernel, dtype=inputs.dtype, requires_grad=False).to(inputs.device)
+
+    def forward(self, x):
+        """ Forward pass. """
+        x = expand_dims(x)
+        if self.padding is not None:
+            x = F.pad(x, (*self.padding[2], *self.padding[1], *self.padding[0], 0, 0, 0, 0))
+        return squueze(F.conv3d(x, self.kernel), self.ndim)
+
+    def gaussian_kernel(self, kernel_size, sigma=None):
+        """ Create gaussian kernel of the specified size. """
+        n = np.zeros(kernel_size)
+        n[tuple(np.array(n.shape) // 2)] = 1
+        return scipy.ndimage.gaussian_filter(n, sigma=sigma)

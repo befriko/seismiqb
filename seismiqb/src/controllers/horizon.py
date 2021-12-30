@@ -79,6 +79,9 @@ class HorizonController(BaseController):
             'chunk_size': 200,
             'chunk_overlap': 0.05,
 
+            # Merge parameters
+            'merge' : {'mean_threshold' : 0.5, 'max_threshold': 1.5, 'adjacency': 1},
+
             'finetune': False,
         },
 
@@ -194,6 +197,7 @@ class HorizonController(BaseController):
         # Prepare parameters
         config = config or {}
         config = Config({**self.config['common'], **self.config['inference'], **config, **kwargs})
+        merge_params = config.pop('merge')
         orientation = config.pop('orientation')
         self.log(f'Starting {orientation} inference')
 
@@ -224,10 +228,11 @@ class HorizonController(BaseController):
                 hm.evaluate('compare', hist=False,
                             plot=True, show=self.plot,
                             printer=lambda msg: print(msg, file=result_txt),
-                            savepath=self.make_savepath('inference_ix', 'l1.png'))
+                            savepath=self.make_savepath('inference_ix', 'difference.png'))
 
         # Merge all the predictions
-        horizons = Horizon.merge_list(horizons, minsize=1000, mean_threshold=0.5, adjacency=1)
+        self.log(f'Merge list: {merge_params}')
+        horizons, _ = Horizon.merge_list(horizons, **merge_params)
         self.log(f'Inference done in {elapsed:4.1f}')
 
         # Log: resource graphs
@@ -301,7 +306,7 @@ class HorizonController(BaseController):
         gc.collect()
         torch.cuda.empty_cache()
 
-        return Horizon.merge_list(horizons, mean_threshold=0.5, adjacency=3, minsize=500)
+        return Horizon.merge_list(horizons, mean_threshold=0.5, adjacency=0)[0]
 
     def _inference_on_chunk(self, dataset, model, grid_chunk, config, iteration):
         # Prepare parameters
@@ -438,11 +443,11 @@ class HorizonController(BaseController):
                     hm.evaluate('compare', hist=False,
                                 plot=True, show=self.plot,
                                 printer=lambda msg: print(msg, file=result_txt),
-                                savepath=self.make_savepath(*prefix, name + 'l1.png'))
+                                savepath=self.make_savepath(*prefix, name + 'difference.png'))
 
                 msg = (f'\nPredicted horizon {i} compared to target:'
                        f'\n{horizon.name}'
-                       f'\nwindow_rate={info["window_rate"]:4.3f}\navg error={info["mean"]:4.3f}')
+                       f'\nwindow_rate={info["window_rate"]:4.3f}\navg error={info["difference_mean"]:4.3f}')
                 self.log(indent(msg, ' '*shift))
 
                 if rename:

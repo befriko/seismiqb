@@ -5,6 +5,7 @@ from math import atan
 import numpy as np
 import torch
 from numba import njit, prange
+from scipy.ndimage import measurements
 
 from .layers import SemblanceLayer, MovingNormalizationLayer, InstantaneousPhaseLayer, FrequenciesFilterLayer
 
@@ -354,6 +355,24 @@ def make_bezier_figure(n=7, radius=0.2, sharpness=0.05, scale=1.0, shape=(1, 1),
     figure_coordinates = np.unique(np.ceil(curve_segments).astype(int), axis=0)
     return figure_coordinates
 
+def trinagular_kernel_1d(length, alpha=.1):
+    """ Kernel-function that changes linearly from a center point to alpha on borders. """
+    result = np.zeros(length)
+    array = np.linspace(alpha, 2, length)
+    result[:length // 2] = array[:length // 2]
+    result[length // 2:] = 2 + alpha - array[length // 2:]
+    return result
+
+def triangular_weights_function_nd(array, alpha=.1):
+    """ Weights-function given by a product of 1d triangular kernels. """
+    result = 1
+    for i, axis_len in enumerate(array.shape):
+        if axis_len != 1:
+            multiplier_shape = np.ones_like(array.shape)
+            multiplier_shape[i] = axis_len
+            result = result * trinagular_kernel_1d(axis_len, alpha).reshape(multiplier_shape)
+    return result
+
 def get_environ_flag(flag_name, defaults=('0', '1'), convert=int):
     """ Retrive environmental variable, check if it matches expected defaults and optionally convert it. """
     flag = os.environ.get(flag_name, '0')
@@ -381,8 +400,54 @@ def make_savepath(path, name, extension=''):
     dir_path = os.path.dirname(path)
     if dir_path:
         os.makedirs(dir_path, exist_ok=True)
-
     return path
+
+def faults_lengthes(slide, normalize):
+    """ Compute sizes (depth length) for each connected object on 2D slide. """
+    sizes = slide.copy()
+    labels, n_objects = measurements.label(slide > 0, structure=np.ones((3, 3)))
+    for i in range(1, n_objects+1):
+        size = np.where(labels == i)[-1].ptp()
+        if normalize:
+            size /= slide.shape[-1]
+        sizes[labels == i] = size
+    return sizes
+
+@njit
+def concat_sorted(first_array, second_array):
+    """ Merge two sorted arrays into sorted array. """
+    buffer = np.zeros((len(first_array) + len(second_array), 3), dtype=np.int32)
+    c = 0
+    i, j = 0, 0
+
+    # Condition is re-evaluated to swapped arrays
+    while i < len(first_array) and j < len(second_array):
+        first_ = first_array[i]
+        second_ = second_array[j]
+
+        # Need to swap or not
+        if second_[0] == first_[0]:
+            if second_[1] < first_[1]:
+                first_array, second_array = second_array, first_array
+                i, j = j, i
+            elif second_[1] == first_[1]:
+                # Same value: no need to duplicate
+                j += 1
+
+        elif second_[0] < first_[0]:
+            first_array, second_array = second_array, first_array
+            i, j = j, i
+
+        buffer[c] = first_array[i]
+        c += 1
+        i += 1
+
+    return buffer[:c]
+
+def split_array(array, labels):
+    """ Split (groupby) array by values from labels. Labels must be sorted and all groups must be contiguous. """
+    return np.split(array, np.unique(labels, return_index=True)[1][1:])
+
 
 @njit
 def get_adjancency_matrix(arr, n):

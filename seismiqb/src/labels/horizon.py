@@ -6,21 +6,22 @@ from functools import partialmethod
 
 import numpy as np
 
-from cv2 import dilate
 from skimage.measure import label
 from scipy.ndimage import find_objects
 from scipy.ndimage.morphology import binary_fill_holes, binary_dilation
 
 from .horizon_attributes import AttributesMixin
+from .horizon_extraction import ExtractionMixin
 from .horizon_visualization import VisualizationMixin
 from ..utils import CacheMixin, CharismaMixin
 from ..utils import groupby_mean, groupby_min, groupby_max, filtering_function
 from ..utils import make_bezier_figure
+from ..utils import MetaDict
 from ..functional import smooth_out
 
 
 
-class Horizon(AttributesMixin, CacheMixin, CharismaMixin, VisualizationMixin):
+class Horizon(AttributesMixin, CacheMixin, CharismaMixin, ExtractionMixin, VisualizationMixin):
     """ Contains spatially-structured horizon: each point describes a height on a particular (iline, xline).
 
     Initialized from `storage` and `geometry`, where storage can be one of:
@@ -76,7 +77,7 @@ class Horizon(AttributesMixin, CacheMixin, CharismaMixin, VisualizationMixin):
 
         - A wealth of visualization methods: view from above, slices along iline/xline axis, etc.
     """
-    #pylint: disable=too-many-public-methods, import-outside-toplevel
+    #pylint: disable=too-many-public-methods, import-outside-toplevel, redefined-builtin
 
     # Columns that are used from the file
     COLUMNS = ['iline', 'xline', 'height']
@@ -85,7 +86,7 @@ class Horizon(AttributesMixin, CacheMixin, CharismaMixin, VisualizationMixin):
     FILL_VALUE = -999999
 
 
-    def __init__(self, storage, field, name=None, dtype=np.int32, **kwargs):
+    def __init__(self, storage, field, name=None, dtype=np.int32, force_format=None, **kwargs):
         # Meta information
         self.path = None
         self.name = name
@@ -112,7 +113,10 @@ class Horizon(AttributesMixin, CacheMixin, CharismaMixin, VisualizationMixin):
         self.field = field
 
         # Check format of storage, then use it to populate attributes
-        if isinstance(storage, str):
+        if force_format is not None:
+            self.format = force_format
+
+        elif isinstance(storage, str):
             # path to csv-like file
             self.format = 'file'
 
@@ -144,7 +148,7 @@ class Horizon(AttributesMixin, CacheMixin, CharismaMixin, VisualizationMixin):
         """
         if self._points is None and self.matrix is not None:
             points = self.matrix_to_points(self.matrix).astype(self.dtype)
-            points += np.array([self.i_min, self.x_min, 0])
+            points += np.array([self.i_min, self.x_min, 0], dtype=self.dtype)
             self._points = points
         return self._points
 
@@ -210,8 +214,10 @@ class Horizon(AttributesMixin, CacheMixin, CharismaMixin, VisualizationMixin):
             if len(self.points) > 0:
                 self._h_min = self.points[:, 2].min().astype(self.dtype)
                 self._h_max = self.points[:, 2].max().astype(self.dtype)
-                self.i_min, self.x_min, _ = np.min(self.points, axis=0).astype(np.int32)
-                self.i_max, self.x_max, _ = np.max(self.points, axis=0).astype(np.int32)
+
+                i_min, x_min, _ = np.min(self.points, axis=0)
+                i_max, x_max, _ = np.max(self.points, axis=0)
+                self.i_min, self.i_max, self.x_min, self.x_max = int(i_min), int(i_max), int(x_min), int(x_max)
 
                 self.i_length = (self.i_max - self.i_min) + 1
                 self.x_length = (self.x_max - self.x_min) + 1
@@ -337,26 +343,30 @@ class Horizon(AttributesMixin, CacheMixin, CharismaMixin, VisualizationMixin):
         self.from_points(points, verify=False, **kwargs)
 
 
-    def from_matrix(self, matrix, i_min, x_min, length=None, **kwargs):
+    def from_matrix(self, matrix, i_min, x_min, h_min=None, h_max=None, length=None, **kwargs):
         """ Init from matrix and location of minimum i, x points. """
         _ = kwargs
 
-        if np.issubdtype(self.dtype, np.integer):
-            matrix = np.rint(matrix)
-        self.matrix = matrix.astype(self.dtype)
+        if matrix.dtype != self.dtype:
+            if np.issubdtype(self.dtype, np.integer):
+                matrix = np.rint(matrix)
+            matrix = matrix.astype(self.dtype)
+        self.matrix = matrix
 
         self.i_min, self.x_min = i_min, x_min
         self.i_max, self.x_max = i_min + matrix.shape[0] - 1, x_min + matrix.shape[1] - 1
 
         self.i_length = (self.i_max - self.i_min) + 1
         self.x_length = (self.x_max - self.x_min) + 1
+        self.reset_storage('points')
+
+        # Populate lazy properties with supplied values
+        self._h_min, self._h_max, self._len = h_min, h_max, length
         self.bbox = np.array([[self.i_min, self.i_max],
                               [self.x_min, self.x_max],
                               [self.h_min, self.h_max]],
                              dtype=np.int32)
 
-        self.reset_storage('points')
-        self._len = length
 
     def from_full_matrix(self, matrix, **kwargs):
         """ Init from matrix that covers the whole cube. """
@@ -388,10 +398,10 @@ class Horizon(AttributesMixin, CacheMixin, CharismaMixin, VisualizationMixin):
 
 
     @staticmethod
-    def from_mask(mask, field=None, origin=None,
+    def from_mask(mask, field=None, origin=None, connectivity=3,
                   mode='mean', threshold=0.5, minsize=0, prefix='predict', **kwargs):
         """ Convert mask to a list of horizons.
-        Returned list is sorted on length of horizons.
+        Returned list is sorted by length of horizons.
 
         Parameters
         ----------
@@ -404,7 +414,7 @@ class Horizon(AttributesMixin, CacheMixin, CharismaMixin, VisualizationMixin):
         mode : str
             Method used for finding the point of a horizon for each iline, xline.
         minsize : int
-            Minimum length of a horizon to be saved.
+            Minimum length of a horizon to be extracted.
         prefix : str
             Name of horizon to use.
         """
@@ -417,7 +427,7 @@ class Horizon(AttributesMixin, CacheMixin, CharismaMixin, VisualizationMixin):
             group_function = groupby_max
 
         # Labeled connected regions with an integer
-        labeled = label(mask >= threshold)
+        labeled = label(mask >= threshold, connectivity=connectivity)
         objects = find_objects(labeled)
 
         # Create an instance of Horizon for each separate region
@@ -660,7 +670,7 @@ class Horizon(AttributesMixin, CacheMixin, CharismaMixin, VisualizationMixin):
         apply_smoothing : bool
             Whether to smooth out the result.
         kwargs : dict
-            Other parameters for grid creation, see `:meth:~.SeismicGeometry.make_grid`.
+            Other parameters for grid creation, see `:meth:~.SeismicGeometry.make_quality_grid`.
         """
         frequencies = frequencies if isinstance(frequencies, (tuple, list)) else [frequencies]
         carcass = copy(self)
@@ -882,315 +892,67 @@ class Horizon(AttributesMixin, CacheMixin, CharismaMixin, VisualizationMixin):
         HorizonMetrics([self, other]).evaluate('compare', absolute=absolute, offset=offset,
                                                printer=printer, hist=hist, plot=plot)
 
-    def check_proximity(self, other, offset=0):
-        """ Compute a number of stats on location of `self` relative to the `other` Horizons.
-        This method can be used as either bound or static method.
+    def check_proximity(self, other):
+        """ Compute a number of stats of location of `self` relative to the `other` Horizons.
 
         Parameters
         ----------
         self, other : Horizon
             Horizons to compare.
-        offset : number
-            Value to shift the first horizon down.
 
         Returns
         -------
         dictionary with following keys:
-            - `mean` for average distance
-            - `abs_mean` for average of absolute values of point-wise distances
-            - `max`, `abs_max`, `std`, `abs_std`
+            - `difference_matrix` with matrix of depth differences
+            - `difference_mean` for average distance
+            - `difference_abs_mean` for average of absolute values of point-wise distances
+            - `difference_max`, `difference_abs_max`, `difference_std`, `difference_abs_std`
+            - `overlap_size` with number of overlapping points
             - `window_rate` for percentage of traces that are in 5ms from one horizon to the other
-            - `offset_diffs` with point-wise differences
         """
-        _, overlap_info = self.verify_merge(other)
-        diffs = overlap_info.get('diffs', 999) + offset
+        difference = np.where((self.full_matrix != self.FILL_VALUE) & (other.full_matrix != self.FILL_VALUE),
+                              self.full_matrix - other.full_matrix, np.nan)
+        abs_difference = np.abs(difference)
 
-        overlap_info = {
-            **overlap_info,
-            'mean': np.mean(diffs),
-            'abs_mean': np.mean(np.abs(diffs)),
-            'max': np.max(diffs),
-            'abs_max': np.max(np.abs(diffs)),
-            'std': np.std(diffs),
-            'abs_std': np.std(np.abs(diffs)),
-            'window_rate': np.mean(np.abs(diffs) < (5 / self.field.sample_rate)),
-            'offset_diffs': diffs,
+        overlap_size = np.nansum(~np.isnan(difference))
+        window_rate = np.nansum(abs_difference < (5 / self.field.sample_rate)) / overlap_size
+
+        present_at_1_absent_at_2 = ((self.full_matrix != self.FILL_VALUE)
+                                    & (other.full_matrix == self.FILL_VALUE)).sum()
+        present_at_2_absent_at_1 = ((self.full_matrix == self.FILL_VALUE)
+                                    & (other.full_matrix != self.FILL_VALUE)).sum()
+
+        info_dict = {
+            'difference_matrix' : difference,
+            'difference_mean' : np.nanmean(difference),
+            'difference_max' : np.nanmax(difference),
+            'difference_min' : np.nanmin(difference),
+            'difference_std' : np.nanstd(difference),
+
+            'abs_difference_mean' : np.nanmean(abs_difference),
+            'abs_difference_max' : np.nanmax(abs_difference),
+            'abs_difference_std' : np.nanstd(abs_difference),
+
+            'overlap_size' : overlap_size,
+            'window_rate' : window_rate,
+
+            'present_at_1_absent_at_2' : present_at_1_absent_at_2,
+            'present_at_2_absent_at_1' : present_at_2_absent_at_1,
         }
-        return overlap_info
+        return MetaDict(info_dict)
 
-
-    # Merge functions
-    def verify_merge(self, other, mean_threshold=3.0, adjacency=0):
-        """ Collect stats of overlapping of two horizons.
-
-        Returns a number that encodes position of two horizons, as well as dictionary with collected statistics.
-        If code is 0, then horizons are too far away from each other (heights-wise), and therefore are not mergeable.
-        If code is 1, then horizons are too far away from each other (spatially) even with adjacency, and therefore
-        are not mergeable.
-        If code is 2, then horizons are close enough spatially (with adjacency), but are not overlapping, and therefore
-        an additional check (`adjacent_merge`) is needed.
-        If code is 3, then horizons are definitely overlapping and are close enough to meet all the thresholds, and
-        therefore are mergeable without any additional checks.
-
-        Parameters
-        ----------
-        self, other : :class:`.Horizon` instances
-            Horizons to compare.
-        mean_threshold : number
-            Height threshold for mean distances.
-        adjacency : int
-            Margin to consider horizons to be close (spatially).
+    def equal(self, other, threshold_missing=0):
+        """ Return True if the horizons are considered equal, False otherwise.
+        If the `threshold_missing` is zero, then check if the points of `self` and `other` are the same.
+        If the `threshold_missing` is positive, then check that in overlapping points values are the same,
+        and number of missing traces is smaller than allowed.
         """
-        overlap_info = {}
+        if threshold_missing == 0:
+            return np.array_equal(self.points, other.points)
 
-        # Overlap bbox
-        overlap_i_min, overlap_i_max = max(self.i_min, other.i_min), min(self.i_max, other.i_max) + 1
-        overlap_x_min, overlap_x_max = max(self.x_min, other.x_min), min(self.x_max, other.x_max) + 1
-
-        i_range = overlap_i_min - overlap_i_max
-        x_range = overlap_x_min - overlap_x_max
-
-        # Simplest possible check: horizon bboxes are too far from each other
-        if i_range >= adjacency or x_range >= adjacency:
-            merge_code = 1
-            spatial_position = 'distant'
-        else:
-            merge_code = 2
-            spatial_position = 'adjacent'
-
-        # Compare matrices on overlap without adjacency:
-        if merge_code != 1 and i_range < 0 and x_range < 0:
-            self_overlap = self.matrix[overlap_i_min - self.i_min:overlap_i_max - self.i_min,
-                                       overlap_x_min - self.x_min:overlap_x_max - self.x_min]
-
-            other_overlap = other.matrix[overlap_i_min - other.i_min:overlap_i_max - other.i_min,
-                                         overlap_x_min - other.x_min:overlap_x_max - other.x_min]
-
-            self_mask = self_overlap != self.FILL_VALUE
-            other_mask = other_overlap != self.FILL_VALUE
-            mask = self_mask & other_mask
-            diffs_on_overlap = self_overlap[mask] - other_overlap[mask]
-
-            if len(diffs_on_overlap) == 0:
-                # bboxes are overlapping, but horizons are not
-                merge_code = 2
-                spatial_position = 'adjacent'
-            else:
-                abs_diffs = np.abs(diffs_on_overlap)
-                mean_on_overlap = np.mean(abs_diffs)
-                if mean_on_overlap < mean_threshold:
-                    merge_code = 3
-                    spatial_position = 'overlap'
-                else:
-                    merge_code = 0
-                    spatial_position = 'separated'
-
-                overlap_info.update({'mean': mean_on_overlap,
-                                     'diffs': diffs_on_overlap})
-
-        overlap_info['spatial_position'] = spatial_position
-        return merge_code, overlap_info
-
-    def overlap_merge(self, other, inplace=False):
-        """ Merge two horizons into one.
-        Note that this function can either merge horizons in-place of the first one (`self`), or create a new instance.
-        """
-        # Create shared background for both horizons
-        shared_i_min, shared_i_max = min(self.i_min, other.i_min), max(self.i_max, other.i_max)
-        shared_x_min, shared_x_max = min(self.x_min, other.x_min), max(self.x_max, other.x_max)
-
-        background = np.zeros((shared_i_max - shared_i_min + 1, shared_x_max - shared_x_min + 1),
-                              dtype=np.int32)
-
-        # Coordinates inside shared for `self` and `other`
-        shared_self_i_min, shared_self_x_min = self.i_min - shared_i_min, self.x_min - shared_x_min
-        shared_other_i_min, shared_other_x_min = other.i_min - shared_i_min, other.x_min - shared_x_min
-
-        # Add both horizons to the background
-        background[shared_self_i_min:shared_self_i_min+self.i_length,
-                   shared_self_x_min:shared_self_x_min+self.x_length] += self.matrix
-
-        background[shared_other_i_min:shared_other_i_min+other.i_length,
-                   shared_other_x_min:shared_other_x_min+other.x_length] += other.matrix
-
-        # Correct overlapping points
-        overlap_i_min, overlap_i_max = max(self.i_min, other.i_min), min(self.i_max, other.i_max) + 1
-        overlap_x_min, overlap_x_max = max(self.x_min, other.x_min), min(self.x_max, other.x_max) + 1
-
-        overlap_i_min -= shared_i_min
-        overlap_i_max -= shared_i_min
-        overlap_x_min -= shared_x_min
-        overlap_x_max -= shared_x_min
-
-        overlap = background[overlap_i_min:overlap_i_max, overlap_x_min:overlap_x_max]
-        mask = overlap >= 0
-        overlap[mask] //= 2
-        overlap[~mask] -= self.FILL_VALUE
-        background[overlap_i_min:overlap_i_max, overlap_x_min:overlap_x_max] = overlap
-
-        background[background == 0] = self.FILL_VALUE
-        length = len(self) + len(other) - mask.sum()
-        # Create new instance or change `self`
-        if inplace:
-            # Change `self` inplace
-            self.from_matrix(background, i_min=shared_i_min, x_min=shared_x_min, length=length)
-            merged = True
-        else:
-            # Return a new instance of horizon
-            merged = Horizon(storage=background, field=self.field, name=self.name,
-                             i_min=shared_i_min, x_min=shared_x_min, length=length)
-        return merged
-
-    def adjacent_merge(self, other, mean_threshold=3.0, adjacency=3, inplace=False):
-        """ Check if adjacent merge (that is merge with some margin) is possible, and, if needed, merge horizons.
-        Note that this function can either merge horizons in-place of the first one (`self`), or create a new instance.
-
-        Parameters
-        ----------
-        self, other : :class:`.Horizon` instances
-            Horizons to merge.
-        mean_threshold : number
-            Height threshold for mean distances.
-        adjacency : int
-            Margin to consider horizons close (spatially).
-        inplace : bool
-            Whether to create new instance or update `self`.
-        """
-        # Simplest possible check: horizons are too far away from one another (depth-wise)
-        overlap_h_min, overlap_h_max = max(self.h_min, other.h_min), min(self.h_max, other.h_max)
-        if overlap_h_max - overlap_h_min < 0:
-            return False
-
-        # Create shared background for both horizons
-        shared_i_min, shared_i_max = min(self.i_min, other.i_min), max(self.i_max, other.i_max)
-        shared_x_min, shared_x_max = min(self.x_min, other.x_min), max(self.x_max, other.x_max)
-
-        background = np.zeros((shared_i_max - shared_i_min + 1, shared_x_max - shared_x_min + 1),
-                              dtype=np.int32)
-
-        # Coordinates inside shared for `self` and `other`
-        shared_self_i_min, shared_self_x_min = self.i_min - shared_i_min, self.x_min - shared_x_min
-        shared_other_i_min, shared_other_x_min = other.i_min - shared_i_min, other.x_min - shared_x_min
-
-        # Put the second of the horizons on background
-        background[shared_other_i_min:shared_other_i_min+other.i_length,
-                   shared_other_x_min:shared_other_x_min+other.x_length] += other.matrix
-
-        # Enlarge the image to account for adjacency
-        kernel = np.ones((3, 3), np.float32)
-        dilated_background = dilate(background.astype(np.float32), kernel,
-                                    iterations=adjacency).astype(np.int32)
-
-        # Make counts: number of horizons in each point; create indices of overlap
-        counts = (dilated_background != 0).astype(np.int32)
-        counts[shared_self_i_min:shared_self_i_min+self.i_length,
-               shared_self_x_min:shared_self_x_min+self.x_length] += 1
-        counts_idx = counts == 2
-
-        # Determine whether horizon can be merged (adjacent and height-close) or not
-        mergeable = False
-        if counts_idx.any():
-            # Put the first horizon on dilated background, compute mean
-            background[shared_self_i_min:shared_self_i_min+self.i_length,
-                       shared_self_x_min:shared_self_x_min+self.x_length] += self.matrix
-
-            # Compute diffs on overlap
-            diffs = background[counts_idx] - dilated_background[counts_idx]
-            diffs = np.abs(diffs)
-            diffs = diffs[diffs < (-self.FILL_VALUE // 2)]
-
-            if len(diffs) != 0 and np.mean(diffs) < mean_threshold:
-                mergeable = True
-
-        if mergeable:
-            background[(background < 0) & (background != self.FILL_VALUE)] -= self.FILL_VALUE
-            background[background == 0] = self.FILL_VALUE
-
-            length = len(self) + len(other) # since there is no direct overlap
-
-            # Create new instance or change `self`
-            if inplace:
-                # Change `self` inplace
-                self.from_matrix(background, i_min=shared_i_min, x_min=shared_x_min, length=length)
-                merged = True
-            else:
-                # Return a new instance of horizon
-                merged = Horizon(storage=background, field=self.field, name=self.name,
-                                 i_min=shared_i_min, x_min=shared_x_min, length=length)
-            return merged
-        return False
-
-    @staticmethod
-    def merge_list(horizons, mean_threshold=2.0, adjacency=3, minsize=50):
-        """ Iteratively try to merge every horizon in a list to every other, until there are no possible merges.
-        Parameters are passed directly to :meth:`~.verify_merge`, :meth:`~.overlap_merge` and :meth:`~.adjacent_merge`.
-        """
-        horizons = [horizon for horizon in horizons if len(horizon) >= minsize]
-
-        # Iterate over the list of horizons to merge everything that can be merged
-        i = 0
-        flag = True
-        while flag:
-            # Continue while at least one pair of horizons was merged at previous iteration
-            flag = False
-            while True:
-                if i >= len(horizons):
-                    break
-
-                j = i + 1
-                while True:
-                    # Attempt to merge j-th horizon to i-th horizon
-                    if j >= len(horizons):
-                        break
-
-                    merge_code, _ = Horizon.verify_merge(horizons[i], horizons[j],
-                                                         mean_threshold=mean_threshold,
-                                                         adjacency=adjacency)
-                    if merge_code == 3:
-                        merged = Horizon.overlap_merge(horizons[i], horizons[j], inplace=True)
-                    elif merge_code == 2:
-                        merged = Horizon.adjacent_merge(horizons[i], horizons[j], inplace=True,
-                                                        mean_threshold=mean_threshold,
-                                                        adjacency=adjacency)
-                    else:
-                        merged = False
-
-                    if merged:
-                        _ = horizons.pop(j)
-                        flag = True
-                    else:
-                        j += 1
-                i += 1
-        return sorted(horizons, key=len, reverse=True)
-
-
-    @staticmethod
-    def average_horizons(horizons):
-        """ Average list of horizons into one surface. """
-        field = horizons[0].field
-        horizon_matrix = np.zeros(field.spatial_shape, dtype=np.float32)
-        std_matrix = np.zeros(field.spatial_shape, dtype=np.float32)
-        counts_matrix = np.zeros(field.spatial_shape, dtype=np.int32)
-
-        for horizon in horizons:
-            fm = horizon.full_matrix
-            horizon_matrix[fm != Horizon.FILL_VALUE] += fm[fm != Horizon.FILL_VALUE]
-            std_matrix[fm != Horizon.FILL_VALUE] += fm[fm != Horizon.FILL_VALUE] ** 2
-            counts_matrix[fm != Horizon.FILL_VALUE] += 1
-
-        horizon_matrix[counts_matrix != 0] /= counts_matrix[counts_matrix != 0]
-        horizon_matrix[counts_matrix == 0] = Horizon.FILL_VALUE
-
-        std_matrix[counts_matrix != 0] /= counts_matrix[counts_matrix != 0]
-        std_matrix -= horizon_matrix ** 2
-        std_matrix = np.sqrt(std_matrix)
-        std_matrix[counts_matrix == 0] = np.nan
-
-        averaged_horizon = Horizon(horizon_matrix.astype(np.int32), field=field)
-        return averaged_horizon, {
-            'matrix': horizon_matrix,
-            'std_matrix': std_matrix,
-        }
+        info = self.check_proximity(other)
+        n_missing = max(info['present_at_1_absent_at_2'], info['present_at_2_absent_at_1'])
+        return info['difference_mean'] == 0 and n_missing < threshold_missing
 
 
     # Save horizon to disk

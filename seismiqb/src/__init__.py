@@ -9,8 +9,9 @@ from .field import Field
 from .synthetic import generate_synthetic, SyntheticGenerator
 from .geometry import SeismicGeometry, BloscFile
 from .labels import Horizon, UnstructuredHorizon, Fault, GeoBody
-from .metrics import HorizonMetrics, GeometryMetrics, FaciesMetrics
-from .samplers import GeometrySampler, HorizonSampler, SeismicSampler, BaseGrid, RegularGrid, ExtensionGrid
+from .metrics import HorizonMetrics, GeometryMetrics, FaultsMetrics, FaciesMetrics
+from .samplers import GeometrySampler, HorizonSampler, FaultSampler, ConstantSampler, \
+                      SeismicSampler, BaseGrid, RegularGrid, ExtensionGrid
 
 # Utilities and helpers
 from .plotters import MatplotlibPlotter, plot_image, plot_loss

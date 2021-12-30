@@ -343,7 +343,10 @@ class SeismicGeometrySEGY(SeismicGeometry):
                 slide = slide.reshape(self.lens)
             else:
                 buffer = np.zeros_like(self.zero_traces, dtype=np.float32)
-                buffer[self.zero_traces == 0] = slide
+                try:
+                    buffer[self.zero_traces == 0] = slide
+                except ValueError:
+                    buffer[~np.isnan(self.min_matrix)] = slide
                 slide = buffer
         return slide
 

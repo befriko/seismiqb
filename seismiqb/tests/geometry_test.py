@@ -107,7 +107,10 @@ def test_geometry(
     )
 
     # Tests exit
-    if exec_info is True:
+    failed, traceback_msg = extract_traceback(path_ipynb=out_path_ipynb)
+    failed = failed or (exec_info is not True)
+
+    if not failed:
         # Open message
         message_path = glob(os.path.join(OUTPUT_DIR, 'message_*.txt'))[-1]
 
@@ -125,7 +128,7 @@ def test_geometry(
 
         if SHOW_TEST_ERROR_INFO:
             # Add error traceback into the message
-            msg = extract_traceback(path_ipynb=out_path_ipynb)
+            msg = traceback_msg
 
         msg += '\nSeismicGeometry tests execution failed.'
 
@@ -140,7 +143,7 @@ def test_geometry(
         print('\n')
 
         # End of the running message
-        if timings['state']=='OK':
+        if timings['state'] == 'OK' and not failed:
             print('Tests for SeismicGeometry were executed successfully.\n')
         else:
             assert False, 'SeismicGeometry tests failed.\n'

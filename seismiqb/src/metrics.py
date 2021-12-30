@@ -744,7 +744,7 @@ class HorizonMetrics(BaseMetrics):
         return from_device(shifted_slice), plot_dict
 
 
-    def find_best_match(self, offset=0, **kwargs):
+    def find_best_match(self, **kwargs):
         """ Find the closest horizon to the first one in the list of passed at initialization. """
         _ = kwargs
         if isinstance(self.horizons[1], Horizon):
@@ -753,9 +753,9 @@ class HorizonMetrics(BaseMetrics):
         lst = []
         for horizon in self.horizons[1]:
             if horizon.field.name == self.horizon.field.name:
-                overlap_info = Horizon.check_proximity(self.horizon, horizon, offset=offset)
+                overlap_info = Horizon.check_proximity(self.horizon, horizon)
                 lst.append((horizon, overlap_info))
-        lst.sort(key=lambda x: abs(x[1].get('mean', 999999)))
+        lst.sort(key=lambda x: abs(x[1].get('difference_mean', 999999)))
         other, overlap_info = lst[0]
         return (other, overlap_info), {} # actual return + fake plot dict
 
@@ -777,19 +777,9 @@ class HorizonMetrics(BaseMetrics):
         if len(self.horizons) != 2:
             raise ValueError('Can compare two horizons exactly or one to the best match from list of horizons. ')
         _ = kwargs
-        (other, oinfo), _ = self.find_best_match(offset=offset)
+        (other, oinfo), _ = self.find_best_match()
+        metric = oinfo['difference_matrix']
 
-        self_full_matrix = self.horizon.full_matrix
-        other_full_matrix = other.full_matrix
-        metric = np.where((self_full_matrix != other.FILL_VALUE) & (other_full_matrix != other.FILL_VALUE),
-                          offset + self_full_matrix - other_full_matrix, np.nan)
-        if absolute:
-            metric = np.abs(metric)
-
-        at_1 = len(np.asarray((self_full_matrix != other.FILL_VALUE) &
-                              (other_full_matrix == other.FILL_VALUE)).nonzero()[0])
-        at_2 = len(np.asarray((self_full_matrix == other.FILL_VALUE) &
-                              (other_full_matrix != other.FILL_VALUE)).nonzero()[0])
 
         if printer is not None:
             msg = f"""
@@ -798,9 +788,9 @@ class HorizonMetrics(BaseMetrics):
             {other.name.rjust(45)}
             {'—'*45}
             Rate in 5ms:                         {oinfo['window_rate']:8.3f}
-            Mean/std of errors:               {oinfo['mean']:4.2f} / {oinfo['std']:4.2f}
-            Mean/std of abs errors:           {oinfo['abs_mean']:4.2f} / {oinfo['abs_std']:4.2f}
-            Max error/abs error:              {oinfo['max']:4} / {oinfo['abs_max']:4}
+            Mean/std of errors:               {oinfo['difference_mean']:4.2f} / {oinfo['difference_std']:4.2f}
+            Mean/std of abs errors:           {oinfo['abs_difference_mean']:4.2f} / {oinfo['abs_difference_std']:4.2f}
+            Max error/abs error:              {oinfo['difference_max']:4} / {oinfo['abs_difference_max']:4}
             {'—'*45}
             Lengths of horizons:                 {len(self.horizon):8}
                                                  {len(other):8}
@@ -817,8 +807,8 @@ class HorizonMetrics(BaseMetrics):
             Number of holes in horizons:         {self.horizon.number_of_holes:8}
                                                  {other.number_of_holes:8}
             {'—'*45}
-            Additional traces labeled:           {at_1:8}
-            (present in one, absent in other)    {at_2:8}
+            Additional traces labeled:           {oinfo['present_at_1_absent_at_2']:8}
+            (present in one, absent in other)    {oinfo['present_at_2_absent_at_1']:8}
             {'—'*45}
             """
             printer(dedent(msg))
@@ -826,8 +816,8 @@ class HorizonMetrics(BaseMetrics):
         if hist:
             hist_dict = {
                 'bins': 100,
-                'xlabel': 'l1-values',
-                'title_label': 'Histogram of l1 differences',
+                'xlabel': 'difference values',
+                'title_label': 'Histogram of horizon differences',
                 **kwargs,
             }
             plot_image(metric, mode='hist', **hist_dict)
@@ -959,11 +949,17 @@ class GeometryMetrics(BaseMetrics):
             'zmin': 0.0, 'zmax': np.nanmax(quality_map),
             **kwargs
         }
+
         return quality_map, plot_dict
 
-    def make_grid(self, quality_map, frequencies, iline=True, xline=True, full_lines=True, margin=0, **kwargs):
+    def make_grid(self, quality_map, frequencies, iline=True, xline=True, margin=0,
+                  extension='cell', filter_outliers=0, **kwargs):
         """ Create grid with various frequencies based on quality map. """
+        full_lines = kwargs.pop('full_lines', False) # for old api consistency
+        extension = 'full' if full_lines else extension
+
         _ = kwargs
+
         if margin:
             bad_traces = np.copy(self.geometry.zero_traces)
             bad_traces[:, 0] = 1
@@ -976,7 +972,8 @@ class GeometryMetrics(BaseMetrics):
             quality_map[(bad_traces - self.geometry.zero_traces) == 1] = 0.0
 
         pre_grid = np.rint(quality_map)
-        grid = gridify(pre_grid, frequencies, iline, xline, full_lines)
+        grid = gridify(matrix=pre_grid, frequencies=frequencies, iline=iline, xline=xline,
+                       extension=extension, filter_outliers=filter_outliers)
 
         if margin:
             grid[(bad_traces - self.geometry.zero_traces) == 1] = 0

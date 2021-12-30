@@ -55,6 +55,11 @@ FIGSIZE : sequence of two integers
 SHOW_FIGURES : bool
     Whether to show additional figures.
     Showing some figures can be useful for finding out the reason for the failure of tests.
+
+Text outputs in executed notebooks controlled with:
+
+VERBOSE : bool
+    Whether to print information about successful tests during the execution of the cycles.
 """
 from glob import glob
 import os
@@ -69,7 +74,8 @@ def test_horizon(
     capsys, tmpdir,
     OUTPUT_DIR=None, USE_TMP_OUTPUT_DIR=True,
     REMOVE_OUTDATED_FILES=True, REMOVE_EXTRA_FILES=True,
-    SHOW_MESSAGE=True, SHOW_TEST_ERROR_INFO=True
+    SHOW_MESSAGE=True, SHOW_TEST_ERROR_INFO=True,
+    VERBOSE=True
 ):
     """ Run Horizon test notebook.
 
@@ -129,7 +135,10 @@ def test_horizon(
 
             # Visualization parameters
             'FIGSIZE': (12, 7),
-            'SHOW_FIGURES': False
+            'SHOW_FIGURES': False,
+
+            # Output parameters
+            'VERBOSE': True
         },
         insert_pos=2,
         out_path_ipynb=out_path_ipynb,
@@ -137,7 +146,10 @@ def test_horizon(
     )
 
     # Tests exit
-    if exec_info is True:
+    failed, traceback_msg = extract_traceback(path_ipynb=out_path_ipynb)
+    failed = failed or (exec_info is not True)
+
+    if not failed:
         # Open message
         message_path = glob(os.path.join(OUTPUT_DIR, 'message_*.txt'))[-1]
 
@@ -147,7 +159,7 @@ def test_horizon(
     else:
         if SHOW_TEST_ERROR_INFO:
             # Add error traceback into the message
-            msg = [extract_traceback(path_ipynb=out_path_ipynb)]
+            msg = [traceback_msg]
 
         msg.append('\nHorizon tests execution failed.')
 
@@ -159,7 +171,7 @@ def test_horizon(
             print(msg)
 
         # End of the running message
-        if exec_info is True and msg.find('fail')==-1:
+        if (msg.find('fail') == -1) and not failed:
             # Clear directory with extra files
             if not USE_TMP_OUTPUT_DIR and REMOVE_EXTRA_FILES:
                 try:

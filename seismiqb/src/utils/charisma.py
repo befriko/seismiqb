@@ -20,7 +20,7 @@ class CharismaMixin:
 
     # Load and save data in charisma-compatible format
     def load_charisma(self, path, dtype=np.int32, format='points', fill_value=np.nan,
-                      transform=True, verify=True, **kwargs):
+                      transform=True, verify=True, recover_lines=False, **kwargs):
         """ Load data from path to either CHARISMA or REDUCED_CHARISMA csv-like file.
 
         Parameters
@@ -54,6 +54,8 @@ class CharismaMixin:
             raise ValueError('Data must be in CHARISMA or REDUCED_CHARISMA format.')
 
         df = pd.read_csv(path, sep=r'\s+', names=names, usecols=self.REDUCED_CHARISMA_SPEC)
+        if recover_lines:
+            df = self.recover_lines_from_cdp(df)
         df.sort_values(self.REDUCED_CHARISMA_SPEC, inplace=True)
         points = df.values
 
@@ -162,3 +164,20 @@ class CharismaMixin:
 
         except UnicodeDecodeError:
             return False
+
+
+    def recover_lines_from_cdp(self, df):
+        """ Fix broken iline and crossline coordinates.
+        If coordinates are out of the cube, 'iline' and 'xline' will be infered from 'cdp_x' and 'cdp_y'. """
+        i_bounds = [self.field.ilines_offset, self.field.ilines_offset + self.field.cube_shape[0]]
+        x_bounds = [self.field.xlines_offset, self.field.xlines_offset + self.field.cube_shape[1]]
+
+        i_mask = np.logical_or(df.iline < i_bounds[0], df.iline >= i_bounds[1])
+        x_mask = np.logical_or(df.xline < x_bounds[0], df.xline >= x_bounds[1])
+
+        _df = df[np.logical_and(i_mask, x_mask)]
+
+        coords = np.rint(self.field.geometry.cdp_to_lines(_df[['cdp_x', 'cdp_y']].values)).astype(np.int32)
+        df.loc[np.logical_and(i_mask, x_mask), ['iline', 'xline']] = coords
+
+        return df

@@ -5,6 +5,7 @@ from threading import RLock
 from hashlib import blake2b
 from copy import copy
 import numpy as np
+import pandas as pd
 
 class lru_cache:
     """ Thread-safe least recent used cache. Must be applied to a class methods.
@@ -154,12 +155,14 @@ class CacheMixin:
 
     You can use this mixin for cache introspection and clearing cached data.
     """
+    #pylint: disable=redefined-builtin
     def get_cached_methods(self):
         """ Get a list of methods that use caching."""
         methods = []
 
         for name in dir(self):
             is_property = isinstance(getattr(self.__class__, name, None), property)
+
             if name.startswith("__") or 'cache' in name or is_property:
                 continue
 
@@ -219,12 +222,14 @@ class CacheMixin:
 
         cache_size_accumulator = 0
 
+        # Accumulate cache size over all cached methods
+        # Each term is a size of cached numpy array
         for method in cached_methods:
             method_values = list(method.cache()[self].values())
 
             for values in method_values:
                 if isinstance(values, np.ndarray):
-                    cache_size_accumulator += sum(item.nbytes / (1024 ** 3) for item in method_values)
+                    cache_size_accumulator += values.nbytes / (1024 ** 3)
 
         return cache_size_accumulator
 
@@ -238,15 +243,21 @@ class CacheMixin:
         """ Total size of cached objects. """
         return self.get_cache_size()
 
-    @property
-    def cache_repr(self):
-        """ Cache representation is presented by a dictionary with names of methods that cache data as keys.
-        Values are dictionaries with information about cache length, size, and method arguments.
+    def make_cache_repr(self, format='dict'):
+        """ Cache representation that consists of names of methods that cache data,
+        information about cache length, size, and arguments for each method.
+
+        Parameters:
+        ----------
+        format : str
+            Return value format. Can be 'dict' or 'df'. 'df' means pandas DataFrame.
         """
         cached_methods = self.get_cached_methods()
 
         cache_repr_ = {}
 
+        # Creation of a dictionary of cache representation for each method
+        # with cache_length, cache_size and arguments
         for method in cached_methods:
             method_cache_length = self.get_cache_length(cached_methods=[method])
 
@@ -262,4 +273,23 @@ class CacheMixin:
                     'arguments': arguments
                 }
 
+        # Convertation to pandas dataframe
+        if format == 'df':
+            cache_repr_ = pd.DataFrame.from_dict(cache_repr_, orient='index')
+
+            # Columns sort
+            if len(cache_repr_) > 0:
+                cache_repr_ = cache_repr_.loc[:, ['cache_length', 'cache_size', 'arguments']]
+
         return cache_repr_
+
+    @property
+    def cache_repr(self):
+        """ DataFrame with cache representation that contains of names, cache_length
+        and cache_size for each cached method.
+        """
+        df = self.make_cache_repr(format='df')
+
+        if len(df) > 0:
+            return df.loc[:, ['cache_length', 'cache_size']]
+        return {}

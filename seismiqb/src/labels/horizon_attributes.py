@@ -58,7 +58,7 @@ class AttributesMixin:
                                  dtype=matrix.dtype)
             background[self.i_min:self.i_max + 1, self.x_min:self.x_max + 1] = matrix
         else:
-            background = matrix
+            background = matrix.copy()
         return background
 
     def matrix_fill_to_num(self, matrix, value):
@@ -135,7 +135,7 @@ class AttributesMixin:
         matrix[dilated2 != self.FILL_VALUE] = dilated2[dilated2 != self.FILL_VALUE]
 
         mask = (dilated1 != self.FILL_VALUE) & (dilated2 != self.FILL_VALUE)
-        matrix[mask] = (dilated1[mask] + dilated2[mask]) / 2
+        matrix[mask] = (dilated1[mask] + dilated2[mask] + 1) // 2
 
         # Fix zero traces
         matrix[np.isnan(self.field.std_matrix)] = np.nan

@@ -257,7 +257,7 @@ class Field(CharismaMixin, VisualizationMixin):
             seismic_crop = geometry.load_crop(location, **kwargs)
         return seismic_crop
 
-    def make_mask(self, location, axis=None, indices='all', width=3, src='labels', **kwargs):
+    def make_mask(self, location, axis=None, indices='all', width=3, src='labels', sparse=False, **kwargs):
         """ Create masks from labels.
 
         Parameters
@@ -276,6 +276,8 @@ class Field(CharismaMixin, VisualizationMixin):
             Width of the resulting label.
         src : str
             Attribute with desired labels.
+        sparse : bool
+            Create mask only for labeled slices (for Faults). Unlabeled slices will be marked by -1.
         """
         # Parse parameters
         if isinstance(location, (int, np.integer)):
@@ -284,7 +286,10 @@ class Field(CharismaMixin, VisualizationMixin):
         width = width or max(5, shape[-1] // 100)
 
         # Placeholder
-        mask = np.zeros(shape, dtype=np.float32)
+        if sparse:
+            mask = -np.ones(shape, dtype=np.float32)
+        else:
+            mask = np.zeros(shape, dtype=np.float32)
 
         labels = getattr(self, src)
         labels = [labels] if not isinstance(labels, (tuple, list)) else labels
@@ -298,7 +303,7 @@ class Field(CharismaMixin, VisualizationMixin):
             np.random.shuffle(labels)
 
         for label in labels:
-            mask = label.add_to_mask(mask, locations=location, width=width)
+            mask = label.add_to_mask(mask, locations=location, width=width, sparse=sparse)
             if indices in ['single', 'random'] and mask.sum() > 0.0:
                 break
         return mask

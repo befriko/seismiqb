@@ -405,7 +405,7 @@ class FaultSampler(BaseSampler):
         return np.concatenate(locations, axis=0)
 
     def _make_locations(self, field, crop_shape, ranges, threshold, extend):
-         # Parse parameters
+        # Parse parameters
         ranges = ranges if ranges is not None else [None, None, None]
         ranges = [item if item is not None else [0, c]
                   for item, c in zip(ranges, field.shape)]
@@ -1034,6 +1034,10 @@ class RegularGrid(BaseGrid):
         orientation = field.geometry.parse_axis(orientation)
         crop_shape = np.array(crop_shape)
         crop_shape = crop_shape if orientation == 0 else crop_shape[[1, 0, 2]]
+
+        if strides is not None:
+            strides = np.array(strides)
+            strides = strides if orientation == 0 else strides[[1, 0, 2]]
 
         # Make ranges
         ranges = [item if item is not None else [0, c] for item, c in zip(ranges, field.shape)]

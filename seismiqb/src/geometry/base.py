@@ -409,6 +409,10 @@ class SeismicGeometry(CacheMixin, ExportMixin):
         array[:, 2] += self.delay
         return array
 
+    def depth_to_time(self, depthes):
+        """ Convert depth to time. """
+        return depthes * self.sample_rate + self.delay
+
     # Spatial matrices
     @property
     def snr(self):
@@ -473,7 +477,8 @@ class SeismicGeometry(CacheMixin, ExportMixin):
             self.make_quality_grid()
         return self._quality_grid
 
-    def make_quality_grid(self, frequencies=(100, 200), iline=True, xline=True, full_lines=True, margin=0, **kwargs):
+    def make_quality_grid(self, frequencies=(100, 200), iline=True, xline=True, margin=0,
+                          extension='cell', filter_outliers=0, **kwargs):
         """ Create `quality_grid` based on `quality_map`.
 
         Parameters
@@ -482,17 +487,29 @@ class SeismicGeometry(CacheMixin, ExportMixin):
             Grid frequencies for individual levels of hardness in `quality_map`.
         iline, xline : bool
             Whether to make lines in grid to account for `ilines`/`xlines`.
-        full_lines : bool
-            Whether to make lines on the whole spatial range.
         margin : int
             Margin of boundaries to not include in the grid.
+        extension : 'full', 'cell', False or int
+            Number of traces to grid lines extension.
+            If 'full', then extends quality grid base points to field borders.
+            If 'cell', then extends quality grid base points to sparse grid cells borders.
+            If False, then make no extension.
+            If int, then extends quality grid base points to +-extension//2 neighboring points.
+        filter_outliers : int
+            A degree of quality map thinning.
+            `filter_outliers` more than zero cuts areas that contain too small connectivity regions.
+            Notice that the method cut the squared area with these regions. It is made for more thinning.
         kwargs : dict
             Other parameters of grid making.
         """
         from ..metrics import GeometryMetrics #pylint: disable=import-outside-toplevel
-        quality_grid = GeometryMetrics(self).make_grid(self.quality_map, frequencies,
-                                                       iline=iline, xline=xline, full_lines=full_lines,
-                                                       margin=margin, **kwargs)
+
+        full_lines = kwargs.pop('full_lines', False) # for old api consistency
+        extension = 'full' if full_lines else extension
+
+        quality_grid = GeometryMetrics(self).make_grid(self.quality_map, frequencies, iline=iline, xline=xline,
+                                                       margin=margin, extension=extension,
+                                                       filter_outliers=filter_outliers, **kwargs)
         self._quality_grid = quality_grid
         return quality_grid
 
@@ -796,7 +813,7 @@ class SeismicGeometry(CacheMixin, ExportMixin):
     def show_quality_grid(self, **kwargs):
         """ Show quality grid. """
         self.show(matrix=self.quality_grid, cmap='Reds', interpolation='bilinear',
-                  title=f'Quality map of `{self.displayed_name}`')
+                  title=f'Quality grid of `{self.displayed_name}`')
 
 
     # Coordinate conversion

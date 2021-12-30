@@ -34,6 +34,9 @@ class Extender(Enhancer):
             'stride': 32,
             'threshold': 10,
 
+            # Merge parameters
+            'merge' : {'mean_threshold' : 0.5, 'max_threshold': 1.5, 'adjacency': 0},
+
             'prefetch': 0,
         }
     })
@@ -47,6 +50,7 @@ class Extender(Enhancer):
         config = config or {}
         config = Config({**self.config['common'], **self.config['inference'], **config, **kwargs})
         n_steps, stride, batch_size, crop_shape = config.get(['n_steps', 'stride', 'batch_size', 'crop_shape'])
+        merge_params = config.get('merge')
         threshold = config.get('threshold', 25)
         prefetch = config.get('prefetch', 0)
 
@@ -82,11 +86,8 @@ class Extender(Enhancer):
             inference_pipeline.run(n_iters=grid.n_iters, prefetch=prefetch)
 
             # Merge surfaces on crops to the horizon itself
-            for patch_horizon in inference_pipeline.v('predicted_horizons'):
-                merge_code, _ = Horizon.verify_merge(horizon, patch_horizon,
-                                                     mean_threshold=0.5, adjacency=1)
-                if merge_code == 3:
-                    _ = horizon.overlap_merge(patch_horizon, inplace=True)
+            horizon_patches = inference_pipeline.v('predicted_horizons')
+            horizon, _, _ = Horizon.merge_into(horizon, horizon_patches, **merge_params)
 
             # Log length increase
             curr_len = len(horizon)
