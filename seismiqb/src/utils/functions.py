@@ -383,3 +383,25 @@ def make_savepath(path, name, extension=''):
         os.makedirs(dir_path, exist_ok=True)
 
     return path
+
+@njit
+def get_adjancency_matrix(arr, n):
+    """ Produce an adjacency matrix for a labeled integer-valued array with the provided amount of unique elements. """
+    res = np.zeros((n, n), dtype=np.int32)
+
+    for i in range(0, arr.shape[0] - 1, 1):
+        for j in range(0, arr.shape[1] - 1, 1):
+
+            a = arr[i, j]
+            b = arr[i, j + 1]
+            c = arr[i + 1, j]
+
+            if a != b:
+                res[a, b] = 1
+                res[b, a] = 1
+
+            if c not in (a, b):
+                res[a, c] = 1
+                res[c, a] = 1
+
+    return res

@@ -6,12 +6,14 @@ import numpy as np
 from cv2 import dilate
 from scipy.signal import hilbert, ricker
 from scipy.ndimage import convolve
+from scipy.ndimage import mean as labelwise_mean
 from scipy.ndimage.morphology import binary_fill_holes, binary_erosion, binary_dilation
+from scipy.sparse.csgraph import connected_components
 from skimage.measure import label
 from sklearn.decomposition import PCA
 
 from ..functional import smooth_out, special_convolve
-from ..utils import transformable, lru_cache, to_list
+from ..utils import transformable, lru_cache, to_list, get_adjancency_matrix
 
 
 
@@ -51,7 +53,9 @@ class AttributesMixin:
     def matrix_put_on_full(self, matrix):
         """ Convert matrix from being horizon-shaped to cube-shaped. """
         if matrix.shape[:2] != self.field.spatial_shape:
-            background = np.full(self.field.spatial_shape, self._dtype_to_fill_value(matrix.dtype), dtype=matrix.dtype)
+            background = np.full(shape=self.field.spatial_shape,
+                                 fill_value=self._dtype_to_fill_value(matrix.dtype),
+                                 dtype=matrix.dtype)
             background[self.i_min:self.i_max + 1, self.x_min:self.x_max + 1] = matrix
         else:
             background = matrix
@@ -172,6 +176,7 @@ class AttributesMixin:
         """ A method for getting binary matrix in cubic coordinates. Allows for introspectable cache. """
         return self.matrix_put_on_full(self.binary_matrix)
 
+    # an alias
     mask = full_binary_matrix
 
 
@@ -733,3 +738,54 @@ class AttributesMixin:
         cluster_map[i, x] = cluster_labels
 
         return cluster_map
+
+    @staticmethod
+    def merge_clusters(clustered, features, threshold=.1, background=-1):
+        """ Analyze clustered horizon map and merge adjacent clusters if averages of their features are similar.
+        Meant to be used in pair with `cluster` method.
+
+        Parameters
+        ----------
+        clustered : numpy array
+            An integer-valued array containing clusters labeled to analyse.
+        features : numpy array
+            An array of clusters features. Must have the same shape as `clustered`.
+        threshold : float
+            A number from 0 to 1 acting as an alikeness threshold for clusters' features centroids.
+        background : int
+            Value that stands for background class label in `clustered`.
+
+        Notes
+        -----
+        After a certain `threshold` value all labeled objects tend to merge together into a single mega cluster.
+        So keep in mind that while the valid range of values for `threshold` is (0, 1), the truly useful subrange
+        might be much more narrow (0.0, 0.3 for example) depending on the distribution of adjacent objects alikeness.
+        """
+        # re-label clusters splitting disconnected areas into separate objects
+        labeled, num_labeled = label(clustered, background=background, return_num=True)
+
+        # find adjacent objects, drop row and column correponding to background
+        adjacency = get_adjancency_matrix(labeled, num_labeled + 1)
+        adjacency = adjacency.astype(bool)[1:, 1:]
+
+        # calculate clusters feature-centroids, averaging values of points they consist of
+        centroids = labelwise_mean(features, labeled, np.arange(1, num_labeled + 1))
+        # estimate objects alikeness via corresponding centroids differences calculation
+        alikeness = np.abs(centroids[:, None] - centroids)
+        # normalize adjacent objects alikeness
+        alikeness /= alikeness[adjacency].max()
+        # set non-adjacent objects alikeness to a threshold value to filter them out
+        alikeness[~adjacency] = threshold
+
+        # produce matrix indicating whether objects should be merged together or not
+        mergency = alikeness < threshold
+        # for every object produce a new label indicating its entry in a new merged object
+        _, new_labels = connected_components(mergency)
+        # add -1 label for background
+        new_labels = np.insert(new_labels, 0, -1)
+
+        # map clusters' labels into newly merged ones via notorious unique-inverse trick
+        uniques, inverse_indices = np.unique(labeled, return_inverse=True)
+        merged = np.array([new_labels[value] for value in uniques])[inverse_indices].reshape(labeled.shape)
+
+        return merged
