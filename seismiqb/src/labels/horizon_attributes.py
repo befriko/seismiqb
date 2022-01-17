@@ -713,14 +713,14 @@ class AttributesMixin:
 
     # Clustering
     @transformable
-    def cluster(self, clusterer, attributes, **kwargs):
+    def cluster(self, clusterer, attributes='amplitudes', **kwargs):
         """ Apply provided clustering function to requested horizon attributes.
 
         Parameters
         ----------
-        clusterer : callable
-            Function that performs clustering — must take features array of (n_samples, n_features) shape
-            and return array of (n_samples,) shape.
+        clusterer : callable or str
+            Function that performs clustering.
+            Must take an array of (n_samples, n_features) shape and return an array of (n_samples,) shape.
         attributes : str, dict, list of str, list of dict
             Attribute load parameters compatible with `:meth:~.load_attribute`.
         kwargs : dict
@@ -741,7 +741,7 @@ class AttributesMixin:
 
     @staticmethod
     def merge_clusters(clustered, features, threshold=.1, background=-1):
-        """ Analyze clustered horizon map and merge adjacent clusters if averages of their features are similar.
+        """ Find adjacent objects in clustered horizon map and merge together if averages of their features are close.
         Meant to be used in pair with `cluster` method.
 
         Parameters
@@ -765,8 +765,7 @@ class AttributesMixin:
         labeled, num_labeled = label(clustered, background=background, return_num=True)
 
         # find adjacent objects, drop row and column correponding to background
-        adjacency = get_adjancency_matrix(labeled, num_labeled + 1)
-        adjacency = adjacency.astype(bool)[1:, 1:]
+        adjacency = get_adjancency_matrix(labeled, num_labeled + 1)[1:, 1:]
 
         # calculate clusters feature-centroids, averaging values of points they consist of
         centroids = labelwise_mean(features, labeled, np.arange(1, num_labeled + 1))

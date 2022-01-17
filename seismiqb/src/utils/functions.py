@@ -451,8 +451,12 @@ def split_array(array, labels):
 
 @njit
 def get_adjancency_matrix(arr, n):
-    """ Produce an adjacency matrix for a labeled integer-valued array with the provided amount of unique elements. """
-    res = np.zeros((n, n), dtype=np.int32)
+    """ Produce an adjacency matrix for a 2d integer-valued array `arr` with `n` unique labeled clusters.
+
+    For every element of the provided array compare its value with the value to the right and to the value below.
+    Unequal elements indicate adjacent clusters and True is put in adjacency matrix at indices defined by their values.
+    """
+    res = np.zeros((n, n), dtype=np.bool_)
 
     for i in range(0, arr.shape[0] - 1, 1):
         for j in range(0, arr.shape[1] - 1, 1):
@@ -462,11 +466,11 @@ def get_adjancency_matrix(arr, n):
             c = arr[i + 1, j]
 
             if a != b:
-                res[a, b] = 1
-                res[b, a] = 1
+                res[a, b] = True
+                res[b, a] = True
 
             if c not in (a, b):
-                res[a, c] = 1
-                res[c, a] = 1
+                res[a, c] = True
+                res[c, a] = True
 
     return res
